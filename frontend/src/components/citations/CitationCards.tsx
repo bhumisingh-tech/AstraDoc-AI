@@ -20,11 +20,11 @@ export function CitationChip({ number, source, onOpen }: { number: number; sourc
 
 export function CitationCards({ sources, query, onOpen }: { sources: Source[]; query: string; onOpen: (source: Source) => void }) {
   if (!sources.length) return null;
-  return <section className="citation-list mt-4" aria-label="Retrieved citation cards"><p className="eyebrow mb-2">EVIDENCE TRAIL · {sources.length} PASSAGES</p><div className="flex flex-wrap gap-2">{sources.map(source => <button className="citation-card" key={`${source.citation}-${source.id}`} type="button" onClick={() => onOpen(source)} aria-label={`Read source ${source.citation} from ${source.source}`}>
+  return <details className="citation-list mt-4" aria-label="Retrieved citation cards"><summary className="eyebrow mb-2 cursor-pointer select-none rounded-lg py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">View supporting evidence · {sources.length} passages</summary><div className="flex flex-wrap gap-2">{sources.map(source => <button className="citation-card" key={`${source.citation}-${source.id}`} type="button" onClick={() => onOpen(source)} aria-label={`Read source ${source.citation} from ${source.source}`}>
     <span className="flex items-center gap-2"><FileText size={14}/><strong className="truncate">{source.source}</strong><ArrowUpRight size={12}/></span>
     <span className="mt-2 block line-clamp-2 text-left text-xs leading-5" style={{color:'var(--muted)'}}><Highlight text={source.text} query={query}/></span>
     <span className="mt-2 flex items-center gap-2 text-[10px] font-mono"><span className="relevance-track"><span style={{width:`${Math.max(0,Math.min(100,source.score*100))}%`}}/></span>{Math.round(source.score*100)}%</span>
-  </button>)}</div></section>;
+  </button>)}</div></details>;
 }
 
 export function SourceDrawer({ source, query, onClose, onLocate }: { source: Source | null; query: string; onClose: () => void; onLocate: (source: Source) => void }) {

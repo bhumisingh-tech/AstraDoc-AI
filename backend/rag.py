@@ -135,11 +135,63 @@ def gemini(question, matches, key, model):
     )
 
 
-def fallback(question, matches):
-    if not matches:
-        return "I could not find supporting information in the document."
+def _short_evidence(text, limit=230):
+    """Extract a readable, bounded excerpt without adding unsupported facts."""
+    clean = re.sub(r"\s+", " ", text).strip()
+    if len(clean) <= limit:
+        return clean
+    # Prefer a natural sentence boundary; PDFs often have no punctuation at all.
+    boundaries = [match.end() for match in re.finditer(r"[.!?](?:\s|$)", clean[:limit])]
+    if boundaries and boundaries[-1] >= 75:
+        return clean[:boundaries[-1]].strip()
+    end = clean.rfind(" ", 0, limit)
+    return clean[:end if end > 70 else limit].rstrip(" ,;:") + "…"
 
-    return "**Relevant document evidence:**\n\n" + "\n\n".join(
-        f'- {p["text"][:420].strip()}… **[Source {i}]**'
-        for i, (p, _) in enumerate(matches[:3], 1)
-    )
+
+def _flight_overview(matches):
+    """A deterministic summary for flight-selection documents, using only stated fields."""
+    text = " ".join(p["text"] for p, _ in matches[:3])
+    if not re.search(r"FLIGHT SELECTION SUMMARY|FLIGHT ITINERARY", text, re.I):
+        return None
+    route = re.search(r"\b([A-Za-z]+)\s*/\s*([A-Za-z]+)\s+INDIGO\b", text, re.I)
+    if not route:
+        return None
+    start, dest = (part.strip() for part in route.groups())
+    # Limit extraction to the first direction and require an explicit round trip label.
+    travel = "round-trip " if re.search(r"ROUND TRIP", text, re.I) else ""
+    cabin = "economy " if re.search(r"ECONOMY", text, re.I) else ""
+    carrier = "IndiGo " if re.search(r"INDIGO", text, re.I) else ""
+    result = f"This document summarizes a {travel}{cabin}{carrier}flight itinerary between {start} and {dest}."
+    dates = re.findall(r"(?:MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY)\s*\|\s*(\d{1,2}\s+[A-Z]+\s+20\d{2})", text, re.I)
+    if dates:
+        unique_dates = list(dict.fromkeys(dates))[:2]
+        result += " Travel dates: " + " and ".join(date.title() for date in unique_dates) + "."
+    fare = re.search(r"(?:ROUND-TRIP PRICE SHOWN|TOTAL FARE)\s*(?:INR|₹)\s*([\d,]+)", text, re.I)
+    if fare:
+        result += f" Listed fare: ₹{fare.group(1)}."
+    if re.search(r"NOT A BOOKED TICKET|Booking/payment not verified", text, re.I):
+        result += " **This is not a confirmed booking.**"
+    return result + " [Source 1]" + (" [Source 2]" if len(matches) > 1 else "")
+
+
+def fallback(question, matches):
+    """Short, extractive evidence-only answer; original retrieval remains unchanged.
+
+    This is not generative AI: for arbitrary questions, source fragments are shown
+    instead of pretending the system has inferred facts it cannot verify.
+    """
+    if not matches:
+        return "I could not find supporting information in the uploaded documents."
+
+    broad = bool(re.search(r"\b(summarize|summary|overview|what is (this|the) (pdf|file|document) about|what is this document)\b", question, re.I))
+    if broad:
+        flight = _flight_overview(matches)
+        if flight:
+            return flight
+        # Top two passages only; cite each one. Do not paste huge raw excerpts.
+        excerpts = [f"{_short_evidence(p['text'], 180)} [Source {i}]" for i, (p, _) in enumerate(matches[:2], 1)]
+        return "**Document overview:** " + " ".join(excerpts)
+
+    # For specific questions, show only the two strongest evidence snippets.
+    excerpts = [f"{_short_evidence(p['text'], 215)} [Source {i}]" for i, (p, _) in enumerate(matches[:2], 1)]
+    return "**From the document:** " + " ".join(excerpts)

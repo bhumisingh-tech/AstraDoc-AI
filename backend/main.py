@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import logging
 import os
 import re
 import threading
@@ -30,6 +31,8 @@ MAX_BYTES = 15 * 1024 * 1024
 ALLOWED = {".pdf", ".docx", ".txt"}
 BASE = Path(__file__).resolve().parent
 FRONTEND_DIST = BASE.parent / "frontend" / "dist"
+
+logger = logging.getLogger("docchat")
 
 app = FastAPI(title="DocChat Bhumi · Constellation", version="1.0.0")
 
@@ -234,7 +237,21 @@ async def chat(body: ChatBody):
                     )
                     mode = "gemini"
                 except (requests.RequestException, KeyError, IndexError, ValueError, TypeError) as exc:
-                    warning = f"Gemini unavailable ({type(exc).__name__}); showing evidence instead."
+                    # Log the HTTP status only; never expose API keys or response bodies.
+                    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+                        status = exc.response.status_code
+                        logger.warning("Gemini request failed: HTTP %s", status)
+                        if status in (401, 403):
+                            warning = "Gemini authentication failed. Check GEMINI_API_KEY in Render Environment. Showing evidence-only answer."
+                        elif status == 429:
+                            warning = "Gemini quota or rate limit reached. Showing evidence-only answer."
+                        elif status == 404:
+                            warning = "Gemini model not found. Check GEMINI_MODEL. Showing evidence-only answer."
+                        else:
+                            warning = f"Gemini request failed (HTTP {status}). Showing evidence-only answer."
+                    else:
+                        logger.warning("Gemini request failed: %s", type(exc).__name__)
+                        warning = "Gemini is temporarily unavailable. Showing evidence-only answer."
                     answer = fallback(question, matches)
                     mode = "evidence"
             else:
