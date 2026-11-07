@@ -1,0 +1,13 @@
+# Optional Render Blueprint; Dockerfile is at the repository root.
+services:
+  - type: web
+    name: docchat-bhumi-constellation
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
