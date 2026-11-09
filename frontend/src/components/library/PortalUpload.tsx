@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { FileText, FileType2, FileUp, Plus, Trash2, AlertCircle, CheckCircle2, Layers3 } from 'lucide-react';
 import type { DocumentStat } from '../../lib/api';
 
-const LIMIT = 15 * 1024 * 1024;
+const DEFAULT_LIMIT = 25 * 1024 * 1024;
 const formats = new Set(['pdf', 'docx', 'txt']);
 const readableSize = (bytes: number) => bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 
@@ -12,17 +12,19 @@ interface Props {
   busy: boolean;
   progress: number;
   error: string | null;
+  limitBytes?: number;
   onUpload: (files: File[]) => void;
   onRemove: (filename: string) => void;
 }
 
 /** Browser drag/drop offers an accessible file input as an equivalent keyboard path. */
-export function PortalUpload({ documents, busy, progress, error, onUpload, onRemove }: Props) {
+export function PortalUpload({ documents, busy, progress, error, limitBytes, onUpload, onRemove }: Props) {
   const [dragging, setDragging] = useState(false);
   const [validation, setValidation] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
+  const limit = limitBytes || DEFAULT_LIMIT;
   const existingBytes = documents.reduce((sum, file) => sum + file.size_bytes, 0);
-  const remaining = Math.max(0, LIMIT - existingBytes);
+  const remaining = Math.max(0, limit - existingBytes);
 
   const accept = (files: File[]) => {
     setValidation(null);
@@ -36,7 +38,7 @@ export function PortalUpload({ documents, busy, progress, error, onUpload, onRem
       return setValidation('Two files have the same name. Rename the duplicate before uploading.');
     }
     const sum = files.reduce((total, file) => total + file.size, 0);
-    if (sum > remaining) return setValidation(`Only ${readableSize(remaining)} remains of the 15 MB limit. Remove a file or choose smaller documents.`);
+    if (sum > remaining) return setValidation(`Only ${readableSize(remaining)} remains of the ${readableSize(limit)} session limit. Remove a file or split large documents. Very large/GB files need a production setup with persistent storage.`);
     onUpload(files);
   };
   const drop = (event: DragEvent<HTMLElement>) => {
@@ -67,7 +69,7 @@ export function PortalUpload({ documents, busy, progress, error, onUpload, onRem
       <span className="portal-orbit" aria-hidden="true"/>
       <div className="portal-core relative mb-5 flex h-16 w-16 items-center justify-center rounded-[22px]">{busy ? <Layers3 size={28}/> : <FileUp size={28}/>}</div>
       <p className="relative font-display text-lg font-semibold">{busy ? 'Mapping your knowledge…' : dragging ? 'Release to form a constellation' : 'Open the portal'}</p>
-      <p className="relative mt-2 max-w-[240px] text-xs leading-5" style={{ color:'var(--muted)' }}>{busy ? 'Uploading and indexing documents. Text extraction may take a moment.' : 'Drop files here, or click to browse your device.'}</p>
+      <p className="relative mt-2 max-w-[240px] text-xs leading-5" style={{ color:'var(--muted)' }}>{busy ? 'Uploading and indexing documents. Text extraction may take a moment.' : 'Drop files here, or click to browse. In-memory demo sessions have size limits; split very large files.'}</p>
       <span className="relative mt-4 rounded-full border px-3 py-1.5 font-mono text-[10px]" style={{ color:'var(--muted)',borderColor:'var(--border)' }}>PDF · DOCX · TXT</span>
       {busy && <div className="absolute bottom-0 left-0 h-1 w-full" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress} aria-label="Upload transfer progress" style={{ background:'var(--border)' }}><div className="h-full transition-[width] duration-200" style={{ background:'var(--violet)',width:`${progress}%` }}/></div>}
     </motion.div>
@@ -84,6 +86,6 @@ export function PortalUpload({ documents, busy, progress, error, onUpload, onRem
       </AnimatePresence>
       {!documents.length && <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed p-5 text-center text-xs" style={{ borderColor:'var(--border)',color:'var(--muted)' }}><CheckCircle2 size={19}/>Your library is empty. Your uploaded documents stay in this server session.</div>}
     </div>
-    <div className="border-t pt-4" style={{ borderColor:'var(--border)' }}><div className="mb-2 flex justify-between font-mono text-[10px]" style={{ color:'var(--muted)' }}><span>STORAGE USED</span><span>{readableSize(existingBytes)} / 15 MB</span></div><div className="h-1.5 overflow-hidden rounded-full" style={{ background:'var(--border)' }}><div className="h-full rounded-full transition-all" style={{ background:'var(--cyan)',width:`${Math.min(existingBytes/LIMIT*100,100)}%` }}/></div></div>
+    <div className="border-t pt-4" style={{ borderColor:'var(--border)' }}><div className="mb-2 flex justify-between font-mono text-[10px]" style={{ color:'var(--muted)' }}><span>STORAGE USED</span><span>{readableSize(existingBytes)} / {readableSize(limit)}</span></div><div className="h-1.5 overflow-hidden rounded-full" style={{ background:'var(--border)' }}><div className="h-full rounded-full transition-all" style={{ background:'var(--cyan)',width:`${Math.min(existingBytes/limit*100,100)}%` }}/></div></div>
   </section>;
 }
