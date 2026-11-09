@@ -217,6 +217,55 @@ def gemini_stream(question, matches, key, model) -> Generator[str, None, None]:
                         yield text
 
 
+
+
+def rerank_with_gemini(question: str, candidates: list[tuple[dict, float]], key: str, model: str, top_k: int) -> list[tuple[dict, float]]:
+    """Optional semantic reranking: ask Gemini which TF-IDF candidates best answer the question.
+    Returns a subset in relevance order, or original candidates on failure. Grounded to provided excerpts only."""
+    if not candidates or len(candidates) <= 1:
+        return candidates[:top_k]
+    lines = []
+    for i, (p, score) in enumerate(candidates, 1):
+        text = re.sub(r"\s+", " ", p.get("text", ""))[:700]
+        lines.append(f"[{i}] source={p.get('source','?')} lexical={score:.3f}\n{text}")
+    prompt = (
+        "Select the passages that best help answer the question using ONLY the provided passages. "
+        "Return strict JSON: {\"keep\": [numbers in best-first order], \"reason\": \"short\"}. "
+        "Include only passages that contain relevant evidence. If none are relevant, return {\"keep\": []}.\n\n"
+        f"QUESTION:\n{question}\n\nPASSAGES:\n" + "\n\n".join(lines)
+    )
+    try:
+        response = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            headers={"x-goog-api-key": key, "Content-Type": "application/json"},
+            json={
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0, "responseMimeType": "application/json"},
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        parts = response.json()["candidates"][0]["content"]["parts"]
+        raw = "\n".join(part["text"] for part in parts if "text" in part).strip()
+        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.I | re.S)
+        data = json.loads(raw)
+        keep = data.get("keep") if isinstance(data, dict) else []
+        if not isinstance(keep, list):
+            return candidates[:top_k]
+        picked = []
+        seen = set()
+        for n in keep:
+            if isinstance(n, int) and 1 <= n <= len(candidates) and n not in seen:
+                picked.append(candidates[n - 1])
+                seen.add(n)
+            if len(picked) >= top_k:
+                break
+        return picked if picked else candidates[:top_k]
+    except Exception as exc:
+        logger.info("Gemini rerank skipped: %s", type(exc).__name__)
+        return candidates[:top_k]
+
+
 def _short_evidence(text, limit=230):
     """Extract a readable, bounded excerpt without adding unsupported facts."""
     clean = re.sub(r"\s+", " ", text).strip()
