@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import os
+import tempfile
 import queue
 import re
 import threading
@@ -26,7 +27,7 @@ from typing import Annotated
 
 import numpy as np
 import requests
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sklearn.decomposition import TruncatedSVD
@@ -41,6 +42,7 @@ from rag import (
     gemini,
     gemini_stream,
     index,
+    rerank_with_gemini,
 )
 
 # Practical defaults for Render-style deployments; override via environment.
@@ -48,6 +50,7 @@ MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
 MAX_FILE_BYTES = int(os.getenv("MAX_FILE_BYTES", str(25 * 1024 * 1024)))
 MAX_FILES = int(os.getenv("MAX_FILES", "12"))
 GEMINI_STREAMING = os.getenv("GEMINI_STREAMING", "1").lower() not in {"0", "false", "no"}
+GEMINI_RERANK = os.getenv("GEMINI_RERANK", "0").lower() in {"1", "true", "yes"}
 ALLOWED = {".pdf", ".docx", ".txt"}
 BASE = Path(__file__).resolve().parent
 FRONTEND_DIST = BASE.parent / "frontend" / "dist"
@@ -55,7 +58,23 @@ APP_NAME = os.getenv("APP_NAME", "DocChat Constellation")
 
 logger = logging.getLogger("docchat")
 
-app = FastAPI(title=APP_NAME, version="1.1.0")
+DOCCHAT_ACCESS_TOKEN = os.getenv("DOCCHAT_ACCESS_TOKEN", "").strip()
+
+def require_access(
+    authorization: str | None = Header(default=None),
+    x_docchat_token: str | None = Header(default=None, alias="X-DocChat-Token"),
+):
+    if not DOCCHAT_ACCESS_TOKEN:
+        return
+    token = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    elif x_docchat_token:
+        token = x_docchat_token.strip()
+    if token != DOCCHAT_ACCESS_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid or missing access token.")
+
+app = FastAPI(title=APP_NAME, version="1.2.0", dependencies=[Depends(require_access)])
 
 
 @dataclass
@@ -137,6 +156,7 @@ def basic_info(session_id: str, s: Session) -> dict:
         "documents": s.file_stats,
         "passage_count": len(s.passages),
         "total_bytes": sum(len(f.data) for f in s.files),
+        "gemini_rerank": GEMINI_RERANK and bool(os.getenv("GEMINI_API_KEY")), "access_token_required": bool(DOCCHAT_ACCESS_TOKEN),
         "limits": {
             "max_upload_bytes": MAX_UPLOAD_BYTES,
             "max_file_bytes": MAX_FILE_BYTES,
@@ -209,7 +229,7 @@ def _human_bytes(num: int) -> str:
     return f"{mb:.0f} MB"
 
 
-@app.get("/api/health")
+@app.get("/api/health", dependencies=[])
 def health():
     return {
         "status": "ok",
@@ -218,6 +238,7 @@ def health():
         "answer_mode": "gemini" if os.getenv("GEMINI_API_KEY") else "evidence",
         "gemini_streaming": GEMINI_STREAMING and bool(os.getenv("GEMINI_API_KEY")),
         "model": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+        "gemini_rerank": GEMINI_RERANK and bool(os.getenv("GEMINI_API_KEY")), "access_token_required": bool(DOCCHAT_ACCESS_TOKEN),
         "limits": {
             "max_upload_bytes": MAX_UPLOAD_BYTES,
             "max_file_bytes": MAX_FILE_BYTES,
@@ -319,8 +340,17 @@ async def chat(body: ChatBody):
     async def events():
         emitted = {"mode": False, "answer": False}
         try:
-            raw_matches = await asyncio.to_thread(select_matches, s, question, body.top_k)
+            candidate_k = min(8, max(body.top_k, body.top_k + 3)) if GEMINI_RERANK else body.top_k
+            raw_matches = await asyncio.to_thread(select_matches, s, question, candidate_k)
             matches = reliable_matches(question, raw_matches)
+            if GEMINI_RERANK and matches and not is_broad_question(question) and os.getenv("GEMINI_API_KEY"):
+                try:
+                    matches = await asyncio.to_thread(
+                        rerank_with_gemini, question, matches,
+                        os.environ["GEMINI_API_KEY"], os.getenv("GEMINI_MODEL", "gemini-2.5-flash"), body.top_k,
+                    )
+                except Exception:
+                    logger.info("Rerank step skipped")
             sources = source_payload(s, matches)
             # Send retrieval data first, before calling Gemini.
             yield sse("sources", {"sources": sources, "question": question})
