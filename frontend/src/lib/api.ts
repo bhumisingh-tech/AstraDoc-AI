@@ -14,12 +14,16 @@ export interface SessionInfo {
   documents: DocumentStat[];
   passage_count: number;
   total_bytes: number;
+  limits?: { max_upload_bytes: number; max_file_bytes: number; max_files: number };
 }
 export interface Health {
   status: 'ok';
+  app?: string;
   gemini_configured: boolean;
   answer_mode: 'gemini' | 'evidence';
+  gemini_streaming?: boolean;
   model: string;
+  limits?: { max_upload_bytes: number; max_file_bytes: number; max_files: number };
 }
 export interface Source {
   id: number;
