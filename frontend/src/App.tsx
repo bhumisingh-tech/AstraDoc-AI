@@ -133,7 +133,7 @@ export default function App() {
     <div className="cosmos" aria-hidden="true"/>
     <div className="app-frame mx-auto flex min-h-dvh w-full max-w-[1700px] flex-col px-3 pb-3 pt-3 sm:px-5 lg:px-7">
       <header className="no-print mb-4 flex shrink-0 items-center justify-between gap-3 px-1 py-1" aria-label="Application header">
-        <div className="flex min-w-0 items-center gap-3"><div className="glass-gradient flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl"><Orbit size={23} style={{ color: 'var(--violet)' }}/></div><div className="min-w-0"><p className="truncate font-display text-lg font-bold tracking-[-.045em]">DocChat <span className="gradient-text">Bhumi</span></p><p className="eyebrow text-[9px]">CONSTELLATION</p></div></div>
+        <div className="flex min-w-0 items-center gap-3"><div className="glass-gradient flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl"><Orbit size={23} style={{ color: 'var(--violet)' }}/></div><div className="min-w-0"><p className="truncate font-display text-lg font-bold tracking-[-.045em]">Astra<span className="gradient-text">Doc</span></p><p className="eyebrow text-[9px]">AI DOCUMENT INTELLIGENCE</p></div></div>
         <div className="flex items-center gap-2"><span className="hidden items-center gap-2 rounded-full border px-3 py-2 text-xs sm:inline-flex" style={{ color: 'var(--muted)', borderColor: 'var(--border)' }}>{offline ? <WifiOff size={13}/> : <span className="status-dot"/>}{offline ? 'Backend offline' : health ? mode === 'gemini' ? (health.gemini_streaming ? 'Gemini AI (streaming)' : 'Gemini AI ready') : 'Evidence-only mode' : 'Connecting…'}</span>
           <button type="button" className="quiet-button hidden md:inline-flex xl:hidden" aria-label="Open constellation map" onClick={()=>{setRightTab('map');setMapOverlay(true);}}><Radar size={18}/></button>
           <button type="button" className="quiet-button hidden md:inline-flex xl:hidden" aria-label="Open document insights" title="Insights" onClick={()=>{setRightTab('insights');setMapOverlay(true);}}><Sparkles size={18}/></button>
@@ -159,7 +159,7 @@ export default function App() {
       <PrintableConversation messages={messages}/>
       <SourceDrawer source={activeSource?.source ?? null} query={activeSource?.query ?? ''} onClose={()=>setActiveSource(null)} onLocate={locateSource}/>
       {chatError && <div role="alert" className="mt-2 rounded-xl border px-4 py-2 text-xs" style={{ borderColor: 'var(--border-strong)', color: 'var(--amber)' }}>{chatError}</div>}
-            <footer className="no-print mt-3 flex shrink-0 items-center justify-between gap-2 px-1 font-mono text-[10px]" style={{ color: 'var(--muted)' }}><span>DOCCHAT CONSTELLATION</span><span title="Gemini is optional: it generates grounded answers from retrieved excerpts. Evidence-only mode still shows cited passages.">{session.passage_count} STARS INDEXED · {mode === 'gemini' ? 'AI + EVIDENCE' : 'EVIDENCE-ONLY'}</span></footer>
+            <footer className="no-print mt-3 flex shrink-0 items-center justify-between gap-2 px-1 font-mono text-[10px]" style={{ color: 'var(--muted)' }}><span>ASTRADOC · ASK • EXPLORE • DISCOVER</span><span title="Gemini is optional: it generates grounded answers from retrieved excerpts. Evidence-only mode still shows cited passages.">{session.passage_count} STARS INDEXED · {mode === 'gemini' ? 'AI + EVIDENCE' : 'EVIDENCE-ONLY'}</span></footer>
     </div>
   </MotionConfig>;
 }
