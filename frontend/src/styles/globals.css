@@ -18,15 +18,15 @@
   --noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
 }
 :root.dark {
-  color-scheme: dark; --bg: #05060D; --bg-elevated: #0b0e1b; --fg: #f4f5ff; --muted: #9aa3c0;
-  --panel: rgba(18,22,48,.45); --panel-strong: rgba(22,27,58,.62); --panel-solid: rgba(18,22,48,.82);
-  --border: rgba(255,255,255,.10); --border-subtle: rgba(255,255,255,.06); --border-strong: rgba(174,151,255,.28);
-  --violet: #a78bfa; --cyan: #22d3ee; --magenta: #e879f9; --amber: #fbbf24; --green: #34d399;
-  --focus: #a78bfa; --ring: rgba(167,139,250,.28); --ring-cyan: rgba(34,211,238,.16);
-  --aurora-a: rgba(109,74,255,.22); --aurora-b: rgba(6,182,212,.14); --aurora-c: rgba(217,70,239,.10);
+  color-scheme: dark; --bg: #070B14; --bg-elevated: #0B1220; --fg: #F1F5F9; --muted: #A3B2C7;
+  --panel: rgba(13,22,36,.78); --panel-strong: rgba(17,27,43,.88); --panel-solid: rgba(17,24,39,.97);
+  --border: rgba(127,166,193,.16); --border-subtle: rgba(127,166,193,.09); --border-strong: rgba(34,211,238,.30);
+  --violet: #8B80FF; --cyan: #22D3EE; --magenta: #8B80FF; --amber: #fbbf24; --green: #34d399;
+  --focus: #22D3EE; --ring: rgba(116,103,246,.18); --ring-cyan: rgba(34,211,238,.18);
+  --aurora-a: rgba(116,103,246,.085); --aurora-b: rgba(34,211,238,.07); --aurora-c: rgba(39,82,132,.05);
   --shadow: 0 8px 32px rgba(0,0,0,.28), 0 2px 8px rgba(0,0,0,.18);
   --shadow-lg: 0 24px 70px rgba(0,0,0,.38), 0 8px 24px rgba(0,0,0,.22);
-  --shadow-inset: inset 0 1px 0 rgba(255,255,255,.06); --scrollbar: rgba(167,139,250,.28);
+  --shadow-inset: inset 0 1px 0 rgba(255,255,255,.035); --scrollbar: rgba(98,141,168,.24);
 }
 * { box-sizing: border-box; }
 html { min-width: 320px; scroll-behavior: smooth; }
@@ -227,3 +227,29 @@ button, input, textarea, select { font: inherit; } button { cursor: pointer; } b
 .wake-orb { animation:wake-pulse 2.4s ease-in-out infinite; box-shadow:0 0 50px rgba(167,139,250,.32); }
 @media (prefers-reduced-motion:reduce) { .wake-orb { animation:none; } }
 :root[data-motion="reduced"] .wake-orb { animation:none; }
+
+/* Obsidian Aurora: quieter document-first hierarchy; light theme remains intact. */
+:root.dark .cosmos { background-color:#070B14; }
+:root.dark .cosmos::before { filter:blur(65px) saturate(90%); opacity:.75; }
+:root.dark .cosmos::after { opacity:.13; }
+:root.dark .glass {
+  background:linear-gradient(165deg,rgba(17,27,43,.93),rgba(10,18,31,.91));
+  border-color:rgba(127,166,193,.15);
+  box-shadow:0 18px 48px rgba(0,0,0,.22),inset 0 1px rgba(255,255,255,.035);
+}
+:root.dark .glass-strong { background:linear-gradient(165deg,rgba(20,32,48,.98),rgba(12,22,36,.97)); }
+:root.dark .glass-gradient {
+  background:linear-gradient(150deg,rgba(20,32,48,.97),rgba(12,22,36,.95)) padding-box,
+    linear-gradient(125deg,rgba(116,103,246,.35),rgba(34,211,238,.32)) border-box;
+}
+:root.dark .gradient-text { background:linear-gradient(110deg,#A99EFF,#4FE1FF);background-clip:text;-webkit-background-clip:text;color:transparent; }
+:root.dark .action-button:hover:not(:disabled),:root.dark .quiet-button:hover:not(:disabled) {
+  border-color:rgba(34,211,238,.44);box-shadow:0 0 0 3px rgba(34,211,238,.11);
+}
+:root.dark .portal { background:radial-gradient(circle at 50% 35%,rgba(116,103,246,.12),transparent 68%),rgba(11,20,34,.88); }
+:root.dark .portal:hover,:root.dark .portal-active {border-color:rgba(34,211,238,.55);box-shadow:inset 0 0 35px rgba(34,211,238,.055),0 0 24px rgba(34,211,238,.09);}
+:root.dark .portal-core {color:#80E8FA;background:rgba(19,42,60,.9);box-shadow:0 0 30px rgba(34,211,238,.12);}
+:root.dark .chat-composer {background:rgba(15,26,43,.92);border-color:rgba(127,166,193,.25);}
+:root.dark .micro-button:hover:not(:disabled),:root.dark .starter-chip:hover:not(:disabled) {background:rgba(34,211,238,.09);}
+:root.dark .status-dot {background:#22D3EE;box-shadow:0 0 12px rgba(34,211,238,.36);}
+@media (prefers-reduced-motion:reduce) { :root.dark .cosmos::before {animation:none;} }
