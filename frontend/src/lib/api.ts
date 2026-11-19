@@ -51,11 +51,12 @@ export interface PassageMap {
   retrieved_ids: number[];
 }
 export type ChatEvent =
+  | { event: 'stage'; data: { stage: 'searching' | 'reading' | 'writing' } }
   | { event: 'sources'; data: { sources: Source[]; question: string } }
   | { event: 'token'; data: { text: string } }
   | { event: 'mode'; data: { mode: AnswerMode } }
   | { event: 'warning'; data: { message: string } }
-  | { event: 'done'; data: { message_index: number } }
+  | { event: 'done'; data: { message_index: number; total_ms?: number; first_token_ms?: number } }
   | { event: 'error'; data: { message: string } };
 
 export class ApiError extends Error {
