@@ -1,4 +1,4 @@
-import { useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { FileText, FileType2, FileUp, Plus, Trash2, AlertCircle, CheckCircle2, Layers3 } from 'lucide-react';
 import type { DocumentStat } from '../../lib/api';
@@ -6,7 +6,7 @@ import { uploadLargeFile } from '../../lib/api';
 
 const DEFAULT_LIMIT = 25 * 1024 * 1024;
 const formats = new Set(['pdf', 'docx', 'txt']);
-const readableSize = (bytes: number) => bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+const readableSize = (bytes: number) => bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : bytes < 1024 ** 3 ? `${(bytes / (1024 ** 2)).toFixed(2)} MB` : `${(bytes / (1024 ** 3)).toFixed(2)} GiB`;
 
 interface Props {
   documents: DocumentStat[];
@@ -22,11 +22,20 @@ interface Props {
 export function PortalUpload({ documents, busy, progress, error, limitBytes, onUpload, onRemove }: Props) {
   const [dragging, setDragging] = useState(false);
   const [largeBusy, setLargeBusy] = useState(false);
+  const [cloudEnabled, setCloudEnabled] = useState(false);
+  useEffect(() => {
+    let active = true;
+    fetch('/api/large-uploads/config').then(response => response.ok ? response.json() : null)
+      .then(config => { if (active) setCloudEnabled(Boolean(config?.enabled)); })
+      .catch(() => { if (active) setCloudEnabled(false); });
+    return () => { active = false; };
+  }, []);
   const [largeProgress, setLargeProgress] = useState(0);
   const [largeStatus, setLargeStatus] = useState('');
   const largeInput = useRef<HTMLInputElement>(null);
   const handleLargeFile = async (file?: File) => {
     if (!file) return;
+    if (!cloudEnabled) { setLargeStatus('Cloud storage is not configured yet. Ask the administrator to connect S3 or R2.'); return; }
     if (file.size > 5 * 1024 ** 3) { setLargeStatus('Maximum supported large file size is 5 GiB.'); return; }
     const token = window.prompt('Enter the large-upload access token provided by the administrator:');
     if (!token) return;
@@ -93,9 +102,9 @@ export function PortalUpload({ documents, busy, progress, error, limitBytes, onU
         <input ref={largeInput} type="file" accept=".pdf,.docx,.txt" className="hidden" onChange={event => void handleLargeFile(event.target.files?.[0])}/>
         <button type="button" disabled={largeBusy || busy} onClick={event => { event.stopPropagation(); largeInput.current?.click(); }}
           className="rounded-lg border px-3 py-2 text-xs font-semibold" style={{ borderColor: 'var(--border-strong)', color: 'var(--text)' }}>
-          {largeBusy ? `Uploading large file… ${largeProgress}%` : 'Upload large file (up to 5 GiB)'}
+          {largeBusy ? `Uploading large file… ${largeProgress}%` : 'Upload to cloud (up to 5 GiB)'}
         </button>
-        <p className="max-w-[260px] text-center text-[10px]" style={{ color: 'var(--muted)' }}>Requires configured cloud storage and an access token. Large files are stored but not yet searchable.</p>
+        <p className="max-w-[260px] text-center text-[10px]" style={{ color: 'var(--muted)' }}>{cloudEnabled ? 'Cloud storage ready · Requires access token · Stored files are not yet searchable.' : 'Cloud storage not connected · 5 GiB uploads unavailable until S3/R2 is configured.'}</p>
         {largeBusy && <progress max={100} value={largeProgress} className="w-full" aria-label="Large file upload progress"/>}
         {largeStatus && <p role="status" className="max-w-[280px] break-words text-xs" style={{ color: 'var(--muted)' }}>{largeStatus}</p>}
       </div>
@@ -114,6 +123,9 @@ export function PortalUpload({ documents, busy, progress, error, limitBytes, onU
       </AnimatePresence>
       {!documents.length && <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed p-5 text-center text-xs" style={{ borderColor:'var(--border)',color:'var(--muted)' }}><CheckCircle2 size={19}/>Your library is empty. Your uploaded documents are saved in the server database when persistence is enabled.</div>}
     </div>
-    <div className="border-t pt-4" style={{ borderColor:'var(--border)' }}><div className="mb-2 flex justify-between font-mono text-[10px]" style={{ color:'var(--muted)' }}><span>STORAGE USED</span><span>{readableSize(existingBytes)} / {readableSize(limit)}</span></div><div className="h-1.5 overflow-hidden rounded-full" style={{ background:'var(--border)' }}><div className="h-full rounded-full transition-all" style={{ background:'var(--cyan)',width:`${Math.min(existingBytes/limit*100,100)}%` }}/></div></div>
+    <div className="border-t pt-4 space-y-3" style={{ borderColor:'var(--border)' }}>
+      <div><div className="mb-2 flex justify-between gap-2 font-mono text-[10px]" style={{ color:'var(--muted)' }}><span>AI CHAT LIBRARY</span><span>{readableSize(existingBytes)} / {readableSize(limit)}</span></div><div className="h-1.5 overflow-hidden rounded-full" style={{ background:'var(--border)' }}><div className="h-full rounded-full transition-all" style={{ background:'var(--cyan)',width:`${Math.min(existingBytes/limit*100,100)}%` }}/></div><p className="mt-1 text-[10px]" style={{color:'var(--muted)'}}>Files indexed for questions and answers</p></div>
+      <div><div className="flex justify-between gap-2 font-mono text-[10px]" style={{ color:'var(--muted)' }}><span>CLOUD FILE UPLOAD</span><span>UP TO 5 GiB / FILE</span></div><p className="mt-1 text-[10px]" style={{color: cloudEnabled ? 'var(--cyan)' : 'var(--muted)'}}>{cloudEnabled ? 'Storage connected · upload only, AI indexing pending' : 'Not configured · connect S3 or R2 to enable'}</p></div>
+    </div>
   </section>;
 }
