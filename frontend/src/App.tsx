@@ -139,6 +139,7 @@ Success metrics: 95% citation accuracy in the evaluation set and mobile usabilit
     };
     try {
       await streamChat({ sessionId: sid, question: cleanQuestion, topK: preferences.topK, regenerateLast: regenerate, signal: controller.signal }, event => {
+        if (event.event === 'stage') patch(msg => ({ ...msg, stage: event.data.stage }));
         if (event.event === 'sources') patch(msg => ({ ...msg, sources: event.data.sources }));
         if (event.event === 'mode') patch(msg => ({ ...msg, mode: event.data.mode }));
         if (event.event === 'warning') patch(msg => ({ ...msg, warning: event.data.message }));

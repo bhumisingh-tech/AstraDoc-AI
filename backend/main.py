@@ -419,8 +419,11 @@ async def chat(body: ChatBody):
         raise HTTPException(409, "Another response is being generated for this session.")
 
     async def events():
+        started_at = time.monotonic()
+        first_token_at = None
         emitted = {"mode": False, "answer": False}
         try:
+            yield sse("stage", {"stage": "searching"})
             candidate_k = min(8, max(body.top_k, body.top_k + 3)) if GEMINI_RERANK else body.top_k
             raw_matches = await asyncio.to_thread(select_matches, s, question, candidate_k)
             matches = reliable_matches(question, raw_matches)
@@ -432,6 +435,7 @@ async def chat(body: ChatBody):
                     )
                 except Exception:
                     logger.info("Rerank step skipped")
+            yield sse("stage", {"stage": "reading"})
             sources = source_payload(s, matches)
             # Send retrieval data first, before calling Gemini.
             yield sse("sources", {"sources": sources, "question": question})
@@ -464,13 +468,27 @@ async def chat(body: ChatBody):
                             except Exception as exc:  # noqa: BLE001
                                 token_queue.put(("error", exc))
 
+                        yield sse("stage", {"stage": "writing"})
                         thread = threading.Thread(target=run_stream, daemon=True)
                         thread.start()
                         while True:
-                            kind, payload = await asyncio.to_thread(token_queue.get)
+                            try:
+                                kind, payload = await asyncio.to_thread(token_queue.get, True, 1.0)
+                            except queue.Empty:
+                                elapsed = time.monotonic() - started_at
+                                # A Gemini call can stall even while the HTTP stream stays open.
+                                # Keep the connection alive and provide a bounded wait.
+                                if not answer_parts and elapsed > 30:
+                                    raise TimeoutError("Gemini took too long to start responding")
+                                if elapsed > 75:
+                                    raise TimeoutError("Gemini response exceeded the time budget")
+                                yield ": keepalive\n\n"
+                                continue
                             if kind == "token":
                                 text = str(payload)
                                 answer_parts.append(text)
+                                if first_token_at is None:
+                                    first_token_at = time.monotonic()
                                 emitted["answer"] = True
                                 yield sse("token", {"text": text})
                             elif kind == "error":
@@ -484,16 +502,19 @@ async def chat(body: ChatBody):
                             yield sse("token", {"text": answer})
                     except Exception as exc:  # noqa: BLE001
                         warning = _gemini_warning(exc)
-                        answer = fallback(question, matches)
-                        mode = "evidence"
-                        answer_parts = [answer]
-                        emitted["answer"] = True
-                        yield sse("mode", {"mode": mode})
-                        emitted["mode"] = True
-                        if warning:
-                            yield sse("warning", {"message": warning})
-                            warning = None
-                        yield sse("token", {"text": answer})
+                        if answer_parts:
+                            # Preserve already streamed text; never append a second answer.
+                            answer = "".join(answer_parts)
+                        else:
+                            answer = fallback(question, matches)
+                            mode = "evidence"
+                            answer_parts = [answer]
+                            emitted["answer"] = True
+                            yield sse("mode", {"mode": mode})
+                            emitted["mode"] = True
+                            yield sse("token", {"text": answer})
+                        yield sse("warning", {"message": warning})
+                        warning = None
                 else:
                     try:
                         answer = await asyncio.to_thread(gemini, question, matches, key, model)
@@ -524,7 +545,10 @@ async def chat(body: ChatBody):
             s.last_question = question
             s.last_retrieved_ids = [src["id"] for src in sources]
             await asyncio.to_thread(persist_history, body.session_id, s.history)
-            yield sse("done", {"message_index": len(s.history) - 1})
+            elapsed_ms = round((time.monotonic() - started_at) * 1000)
+            first_token_ms = round((first_token_at - started_at) * 1000) if first_token_at else None
+            logger.info("chat_timing total_ms=%s first_token_ms=%s mode=%s sources=%s", elapsed_ms, first_token_ms, mode, len(sources))
+            yield sse("done", {"message_index": len(s.history) - 1, "total_ms": elapsed_ms, "first_token_ms": first_token_ms})
         except Exception:
             logger.exception("Chat request failed")
             yield sse("error", {"message": "Could not complete the answer. Please retry."})

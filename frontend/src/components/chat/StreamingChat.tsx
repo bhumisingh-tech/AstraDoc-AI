@@ -13,6 +13,7 @@ export interface ChatMessage {
   mode: AnswerMode | null;
   status: 'streaming' | 'done' | 'stopped' | 'error';
   warning?: string;
+  stage?: 'searching' | 'reading' | 'writing';
 }
 interface Props {
   messages: ChatMessage[];
@@ -30,14 +31,6 @@ export function StreamingChat({ messages, busy, enabled, suggested, mode, onAsk,
   const [draft, setDraft] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Record<string, 'up' | 'down'>>({});
-  const [thinkingStage, setThinkingStage] = useState(0);
-  useEffect(() => {
-    if (!busy) { setThinkingStage(0); return; }
-    setThinkingStage(0);
-    const first = window.setTimeout(() => setThinkingStage(1), 1100);
-    const second = window.setTimeout(() => setThinkingStage(2), 2600);
-    return () => { window.clearTimeout(first); window.clearTimeout(second); };
-  }, [busy]);
   const bottom = useRef<HTMLDivElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   useEffect(() => { bottom.current?.scrollIntoView({ behavior:'smooth',block:'end' }); }, [messages]);
@@ -61,7 +54,7 @@ export function StreamingChat({ messages, busy, enabled, suggested, mode, onAsk,
         {messages.map(message => <motion.article key={message.id} initial={{ opacity:0,y:12 }} animate={{opacity:1,y:0}} className="space-y-4">
           <div className="flex items-start justify-end gap-3"><div className="max-w-[89%] rounded-[20px] rounded-tr-md px-4 py-3 text-sm leading-6" style={{ background:'var(--ring)' }}>{message.question}</div><div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl" style={{border:'1px solid var(--border)',color:'var(--muted)'}}><UserRound size={16}/></div></div>
           <div className="flex items-start gap-3"><div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{background:'var(--ring)',color:'var(--violet)'}}><Bot size={18}/></div><div className="min-w-0 flex-1"><div className="mb-2 flex items-center gap-2"><p className="text-sm font-semibold">Constellation</p><span className="font-mono text-[10px]" style={{color:'var(--muted)'}}>{message.mode === 'gemini' ? 'GEMINI · GROUNDED IN SOURCES' : message.mode === 'evidence' ? 'EVIDENCE-ONLY EXCERPTS' : 'SEARCHING'}</span></div>
-            {message.answer ? <MarkdownAnswer content={message.answer} sources={message.sources} onOpenSource={source => onOpenSource(source,message.question)}/> : message.status === 'streaming' ? <div className="space-y-3 py-2" aria-label="Preparing grounded answer" role="status"><p className="text-xs font-medium" style={{color:'var(--cyan)'}}>{['Searching document…', 'Reading passages…', 'Writing answer…'][thinkingStage]}</p><div className="skeleton h-3 w-5/6 rounded-full"/><div className="skeleton h-3 w-2/3 rounded-full"/><div className="skeleton h-3 w-3/4 rounded-full"/></div> : <p className="text-sm" style={{color:'var(--muted)'}}>No answer was received.</p>}
+            {message.answer ? <MarkdownAnswer content={message.answer} sources={message.sources} onOpenSource={source => onOpenSource(source,message.question)}/> : message.status === 'streaming' ? <div className="space-y-3 py-2" aria-label="Preparing grounded answer" role="status"><p className="text-xs font-medium" style={{color:'var(--cyan)'}}>{({ searching: 'Searching document…', reading: 'Reading passages…', writing: 'Writing answer…' } as const)[message.stage ?? 'searching']}</p><div className="skeleton h-3 w-5/6 rounded-full"/><div className="skeleton h-3 w-2/3 rounded-full"/><div className="skeleton h-3 w-3/4 rounded-full"/></div> : <p className="text-sm" style={{color:'var(--muted)'}}>No answer was received.</p>}
             {message.status === 'streaming' && message.answer && <span className="typing-caret" aria-label="Answer is streaming"/>}
             {message.warning && <p className="mt-2 text-xs" style={{color:'var(--amber)'}} role="status">{message.warning}</p>}
             {message.status === 'stopped' && <p className="mt-2 text-xs" style={{color:'var(--amber)'}}>Generation stopped. A partial answer may be shown.</p>}
