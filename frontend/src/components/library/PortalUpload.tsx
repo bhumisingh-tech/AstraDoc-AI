@@ -2,6 +2,7 @@ import { useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent 
 import { AnimatePresence, motion } from 'framer-motion';
 import { FileText, FileType2, FileUp, Plus, Trash2, AlertCircle, CheckCircle2, Layers3 } from 'lucide-react';
 import type { DocumentStat } from '../../lib/api';
+import { uploadLargeFile } from '../../lib/api';
 
 const DEFAULT_LIMIT = 25 * 1024 * 1024;
 const formats = new Set(['pdf', 'docx', 'txt']);
@@ -20,6 +21,23 @@ interface Props {
 /** Browser drag/drop offers an accessible file input as an equivalent keyboard path. */
 export function PortalUpload({ documents, busy, progress, error, limitBytes, onUpload, onRemove }: Props) {
   const [dragging, setDragging] = useState(false);
+  const [largeBusy, setLargeBusy] = useState(false);
+  const [largeProgress, setLargeProgress] = useState(0);
+  const [largeStatus, setLargeStatus] = useState('');
+  const largeInput = useRef<HTMLInputElement>(null);
+  const handleLargeFile = async (file?: File) => {
+    if (!file) return;
+    if (file.size > 5 * 1024 ** 3) { setLargeStatus('Maximum supported large file size is 5 GiB.'); return; }
+    const token = window.prompt('Enter the large-upload access token provided by the administrator:');
+    if (!token) return;
+    setLargeBusy(true); setLargeProgress(0); setLargeStatus('');
+    try {
+      const result = await uploadLargeFile(file, token, setLargeProgress);
+      setLargeStatus(`${file.name}: ${result.message}`);
+    } catch (error) {
+      setLargeStatus(error instanceof Error ? error.message : 'Upload failed.');
+    } finally { setLargeBusy(false); if (largeInput.current) largeInput.current.value = ''; }
+  };
   const [validation, setValidation] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const limit = limitBytes || DEFAULT_LIMIT;
@@ -71,6 +89,16 @@ export function PortalUpload({ documents, busy, progress, error, limitBytes, onU
       <p className="relative font-display text-lg font-semibold">{busy ? 'Mapping your knowledge…' : dragging ? 'Release to form a constellation' : 'Open the portal'}</p>
       <p className="relative mt-2 max-w-[240px] text-xs leading-5" style={{ color:'var(--muted)' }}>{busy ? 'Uploading and indexing documents. Text extraction may take a moment.' : 'Drop files here, or click to browse. Files are saved in your session when persistence is enabled.'}</p>
       <span className="relative mt-4 rounded-full border px-3 py-1.5 font-mono text-[10px]" style={{ color:'var(--muted)',borderColor:'var(--border)' }}>PDF · DOCX · TXT</span>
+      <div className="relative mt-3 flex flex-col items-center gap-2">
+        <input ref={largeInput} type="file" accept=".pdf,.docx,.txt" className="hidden" onChange={event => void handleLargeFile(event.target.files?.[0])}/>
+        <button type="button" disabled={largeBusy || busy} onClick={event => { event.stopPropagation(); largeInput.current?.click(); }}
+          className="rounded-lg border px-3 py-2 text-xs font-semibold" style={{ borderColor: 'var(--border-strong)', color: 'var(--text)' }}>
+          {largeBusy ? `Uploading large file… ${largeProgress}%` : 'Upload large file (up to 5 GiB)'}
+        </button>
+        <p className="max-w-[260px] text-center text-[10px]" style={{ color: 'var(--muted)' }}>Requires configured cloud storage and an access token. Large files are stored but not yet searchable.</p>
+        {largeBusy && <progress max={100} value={largeProgress} className="w-full" aria-label="Large file upload progress"/>}
+        {largeStatus && <p role="status" className="max-w-[280px] break-words text-xs" style={{ color: 'var(--muted)' }}>{largeStatus}</p>}
+      </div>
       {busy && <div className="absolute bottom-0 left-0 h-1 w-full" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress} aria-label="Upload transfer progress" style={{ background:'var(--border)' }}><div className="h-full transition-[width] duration-200" style={{ background:'var(--violet)',width:`${progress}%` }}/></div>}
     </motion.div>
     {busy && <p className="-mt-3 text-center font-mono text-[11px]" style={{ color:'var(--muted)' }}>{progress < 100 ? `Transferring ${progress}%` : 'Transfer complete · indexing text…'}</p>}
