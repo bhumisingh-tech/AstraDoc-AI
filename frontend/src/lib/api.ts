@@ -212,3 +212,58 @@ export function uploadWithProgress(
   });
   return { promise, abort: () => xhr.abort() };
 }
+
+/** Direct multipart upload to S3/R2, never sending large file bytes through Render. */
+export async function uploadLargeFile(
+  file: File, token: string, onProgress: (percent: number) => void,
+): Promise<{ key: string; size_bytes: number; status: string; indexed: boolean; message: string }> {
+  const headers = { 'Content-Type': 'application/json', 'X-Large-Upload-Token': token };
+  const request = async <T>(endpoint: string, body: object): Promise<T> => {
+    const response = await fetch(`/api/large-uploads/${endpoint}`, { method: 'POST', headers, body: JSON.stringify(body) });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(typeof error.detail === 'string' ? error.detail : `Large upload failed (HTTP ${response.status})`);
+    }
+    return response.json() as Promise<T>;
+  };
+  const start = await request<{ key: string; upload_id: string; part_bytes: number }>('start', { name: file.name, size: file.size });
+  const parts: { PartNumber: number; ETag: string }[] = [];
+  try {
+    const total = Math.ceil(file.size / start.part_bytes);
+    for (let number = 1; number <= total; number++) {
+      const offset = (number - 1) * start.part_bytes;
+      const slice = file.slice(offset, Math.min(offset + start.part_bytes, file.size));
+      const { url } = await request<{ url: string }>('part', { key: start.key, upload_id: start.upload_id, number });
+      let etag = '';
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          etag = await new Promise<string>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('PUT', url);
+            xhr.upload.onprogress = event => {
+              if (event.lengthComputable) onProgress(Math.min(99, Math.floor((offset + event.loaded) / file.size * 100)));
+            };
+            xhr.onload = () => xhr.status >= 200 && xhr.status < 300
+              ? resolve(xhr.getResponseHeader('ETag') || '')
+              : reject(new Error(`Storage rejected upload part ${number} (HTTP ${xhr.status}).`));
+            xhr.onerror = () => reject(new Error('Storage connection failed. Check bucket CORS and network access.'));
+            xhr.send(slice);
+          });
+          if (!etag) throw new Error('Storage did not expose the ETag header. Add ETag to bucket CORS ExposeHeaders.');
+          break;
+        } catch (error) {
+          if (attempt === 2) throw error;
+        }
+      }
+      parts.push({ PartNumber: number, ETag: etag });
+    }
+    const finished = await request<{ key: string; size_bytes: number; status: string; indexed: boolean; message: string }>(
+      'finish', { key: start.key, upload_id: start.upload_id, parts },
+    );
+    onProgress(100);
+    return finished;
+  } catch (error) {
+    await request('abort', { key: start.key, upload_id: start.upload_id }).catch(() => {});
+    throw error;
+  }
+}
