@@ -79,7 +79,9 @@ def require_access(
     if token != DOCCHAT_ACCESS_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid or missing access token.")
 
-app = FastAPI(title=APP_NAME, version="1.2.0", dependencies=[Depends(require_access)])
+app = FastAPI(title=APP_NAME, version="1.3.0", dependencies=[Depends(require_access)])
+from large_uploads import router as large_upload_router
+app.include_router(large_upload_router)
 
 
 @dataclass
