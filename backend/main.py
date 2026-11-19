@@ -111,7 +111,7 @@ sessions_lock = threading.Lock()
 
 # Anonymous session persistence. Render Free has ephemeral storage: a persistent
 # disk or external database is needed to retain these records across deploys.
-DATABASE_PATH = Path(os.getenv("DATABASE_PATH", str(BASE / "data" / "astradoc.sqlite3")))
+DATABASE_PATH = Path(os.getenv("DATABASE_PATH", str(Path(tempfile.gettempdir()) / "astradoc" / "astradoc.sqlite3")))
 DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
 PERSIST_SESSIONS = os.getenv("PERSIST_SESSIONS", "1").lower() in {"1", "true", "yes"}
 SESSION_TTL_DAYS = max(1, int(os.getenv("SESSION_TTL_DAYS", "30")))
