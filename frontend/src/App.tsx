@@ -20,6 +20,8 @@ export default function App() {
   const { preferences, setPreferences, reducedMotion } = usePreferences();
   const [health, setHealth] = useState<Health | null>(null);
   const [offline, setOffline] = useState(false);
+  const [waking, setWaking] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
   const [session, setSession] = useState<SessionInfo>(empty);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [suggested, setSuggested] = useState<string[]>([]);
@@ -47,7 +49,24 @@ export default function App() {
   useEffect(() => {
     isMounted.current = true;
     const controller = new AbortController();
-    api.health(controller.signal).then(info => { setHealth(info); setOffline(false); }).catch(() => { if (!controller.signal.aborted) setOffline(true); });
+    let attempts = 0;
+    const wakeTimer = window.setTimeout(() => setWaking(true), 1600);
+    const checkHealth = async () => {
+      while (!controller.signal.aborted && attempts < 24) {
+        try {
+          const info = await api.health(controller.signal);
+          if (!controller.signal.aborted) { setHealth(info); setOffline(false); setWaking(false); }
+          return;
+        } catch {
+          if (controller.signal.aborted) return;
+          attempts++;
+          setWaking(true);
+          await new Promise(resolve => window.setTimeout(resolve, 3000));
+        }
+      }
+      if (!controller.signal.aborted) { setOffline(true); setWaking(false); }
+    };
+    void checkHealth();
     const savedId = localStorage.getItem('astradoc-session-id');
     if (savedId) api.session(savedId, controller.signal).then(info => {
       if (controller.signal.aborted) return;
@@ -56,7 +75,7 @@ export default function App() {
       api.insights(savedId).then(details => { if (!controller.signal.aborted) setSuggested(details.suggested_questions); }).catch(() => {});
       setDocumentRevision(value => value + 1);
     }).catch(() => { if (!controller.signal.aborted) localStorage.removeItem('astradoc-session-id'); });
-    return () => { isMounted.current = false; controller.abort(); chatAbort.current?.abort(); };
+    return () => { isMounted.current = false; window.clearTimeout(wakeTimer); controller.abort(); chatAbort.current?.abort(); };
   }, []);
 
   const refreshInsights = async (sessionId: string) => {
@@ -75,6 +94,26 @@ export default function App() {
     } catch (error) { setUploadError(messageError(error)); }
     finally { uploadInFlight.current = false; setBusyUpload(false); }
   }, []);
+  const sample = () => {
+    const example = `AstraDoc Sample Project Brief
+Project: Aurora Knowledge Assistant
+Owner: Product & Engineering
+Kickoff: 12 January 2027
+Launch target: 18 March 2027
+Budget: INR 4,50,000
+Goals: Make document search accurate, fast, accessible, and easy to verify.
+Milestone 1 (20 January): Finish design system and accessibility audit.
+Milestone 2 (15 February): Complete citation and source-viewer testing.
+Milestone 3 (1 March): Run security and performance review.
+Action items:
+- Design team: finalize mobile layouts by 20 January.
+- Engineering team: add streaming status feedback by 15 February.
+- QA team: verify citations against source passages by 1 March.
+Risks: Free hosting cold starts, storage limits, and incomplete OCR.
+Success metrics: 95% citation accuracy in the evaluation set and mobile usability score above 90.
+`;
+    void upload([new File([example], 'astradoc-sample-brief.txt', {type:'text/plain'})]);
+  };
   const remove = async (name: string) => {
     const sid = currentSession.current.session_id; if (!sid || busyChat || busyUpload) return;
     setBusyUpload(true); setUploadError(null);
@@ -131,6 +170,8 @@ export default function App() {
   const rightContent = rightTab === 'insights' ? insightPanel : rightTab === 'export' ? exportPanel : mapPanel || <div className="flex h-full flex-col justify-center gap-3 text-center"><Orbit className="mx-auto" size={36} style={{color:'var(--violet)'}}/><p className="font-display font-semibold">Your night sky awaits.</p><p className="text-sm" style={{color:'var(--muted)'}}>Upload documents to assemble the star map.</p></div>;
   useEffect(() => {
     const keyboard = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); setCommandOpen(value => !value); }
+      if (event.key === 'Escape') setCommandOpen(false);
       if ((event.ctrlKey || event.metaKey) && event.key === ',') { event.preventDefault(); setControlOpen(true); }
     };
     document.addEventListener('keydown', keyboard);
@@ -140,6 +181,8 @@ export default function App() {
   return <MotionConfig reducedMotion={reducedMotion ? 'always' : 'never'}>
     <div className="cosmos" aria-hidden="true"/>
     <div className="app-frame mx-auto flex min-h-dvh w-full max-w-[1700px] flex-col px-3 pb-3 pt-3 sm:px-5 lg:px-7">
+      {waking && !health && <div className="fixed inset-0 z-[90] flex flex-col items-center justify-center gap-6 bg-[#05060D]/95 px-5 text-center text-white" role="status" aria-live="polite"><div className="wake-orb flex h-20 w-20 items-center justify-center rounded-[26px] border border-violet-400/30 bg-violet-400/10"><Orbit size={38} className="text-violet-300"/></div><div><h2 className="text-2xl font-semibold">Waking up the server…</h2><p className="mt-2 max-w-sm text-sm text-slate-400">AstraDoc is starting on Render. Free instances may need a moment after inactivity.</p></div><div className="skeleton h-1.5 w-48 rounded-full" /></div>}
+      {commandOpen && <div className="fixed inset-0 z-[80] flex items-start justify-center bg-black/70 px-4 pt-[14vh]" role="presentation" onMouseDown={event => {if (event.currentTarget===event.target) setCommandOpen(false);}}><div role="dialog" aria-modal="true" aria-label="Command palette" className="glass w-full max-w-lg p-5"><p className="eyebrow mb-4">QUICK ACTIONS · CTRL+K</p><div className="grid gap-2"><button className="export-action" onClick={() => {setCommandOpen(false);setMobileTab('library');setLeftOpen(true);}}>Open document library</button><button className="export-action" onClick={() => {setCommandOpen(false);setMobileTab('chat');}}>Go to chat</button><button className="export-action" onClick={() => {setCommandOpen(false);setRightTab('insights');setMapOverlay(true);}}>View document insights</button><button className="export-action" onClick={() => {setCommandOpen(false);setRightTab('export');setMapOverlay(true);}}>Export conversation</button></div></div></div>}
       <header className="no-print mb-4 flex shrink-0 items-center justify-between gap-3 px-1 py-1" aria-label="Application header">
         <div className="flex min-w-0 items-center gap-3"><div className="glass-gradient flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl"><Orbit size={23} style={{ color: 'var(--violet)' }}/></div><div className="min-w-0"><p className="truncate font-display text-lg font-bold tracking-[-.045em]">Astra<span className="gradient-text">Doc</span></p><p className="eyebrow text-[9px]">AI DOCUMENT INTELLIGENCE</p></div></div>
         <div className="flex items-center gap-2"><span className="hidden items-center gap-2 rounded-full border px-3 py-2 text-xs sm:inline-flex" style={{ color: 'var(--muted)', borderColor: 'var(--border)' }}>{offline ? <WifiOff size={13}/> : <span className="status-dot"/>}{offline ? 'Backend offline' : health ? mode === 'gemini' ? (health.gemini_streaming ? 'Gemini AI (streaming)' : 'Gemini AI ready') : 'Evidence-only mode' : 'Connecting…'}</span>
@@ -152,6 +195,7 @@ export default function App() {
           <button type="button" className="quiet-button" onClick={() => setPreferences(p => ({ ...p, theme: p.theme === 'dark' ? 'light' : 'dark' }))} aria-label={`Switch to ${preferences.theme === 'dark' ? 'light' : 'dark'} theme`}>{preferences.theme === 'dark' ? <Sun size={18}/> : <Moon size={18}/>}</button>
         </div>
       </header>
+      {!session.session_id && !busyUpload && <div className="no-print mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border px-4 py-3" style={{borderColor:'var(--border)',background:'var(--panel)'}}><span className="text-xs" style={{color:'var(--muted)'}}>New here? Explore a ready-made project brief with dates, action items, and citations.</span><button className="micro-button" type="button" onClick={sample}>✦ Try a sample document</button></div>}
       <div className="workspace relative grid min-h-0 flex-1 gap-3 md:grid-cols-[minmax(0,1fr)]" style={{ gridTemplateColumns: undefined }}>
         <div className="hidden min-h-0 gap-3 md:flex">
           <AnimatePresence initial={false}>{leftOpen && <motion.aside initial={{ width: 0, opacity: 0 }} animate={{ width: 320, opacity: 1 }} exit={{ width: 0, opacity: 0 }} transition={{ duration: .2 }} className="glass min-h-0 max-w-[37%] shrink-0 overflow-hidden"><div className="h-full min-w-[260px] p-4 lg:p-5"><PortalUpload documents={session.documents} busy={busyUpload || busyChat} progress={uploadProgress} error={uploadError} limitBytes={session.limits?.max_upload_bytes ?? health?.limits?.max_upload_bytes} onUpload={upload} onRemove={remove}/></div></motion.aside>}</AnimatePresence>
@@ -167,7 +211,7 @@ export default function App() {
       <PrintableConversation messages={messages}/>
       <SourceDrawer source={activeSource?.source ?? null} query={activeSource?.query ?? ''} onClose={()=>setActiveSource(null)} onLocate={locateSource}/>
       {chatError && <div role="alert" className="mt-2 rounded-xl border px-4 py-2 text-xs" style={{ borderColor: 'var(--border-strong)', color: 'var(--amber)' }}>{chatError}</div>}
-            <footer className="no-print mt-3 flex shrink-0 items-center justify-between gap-2 px-1 font-mono text-[10px]" style={{ color: 'var(--muted)' }}><span>ASTRADOC · ASK • EXPLORE • DISCOVER</span><span title="Gemini is optional: it generates grounded answers from retrieved excerpts. Evidence-only mode still shows cited passages.">{session.passage_count} STARS INDEXED · {mode === 'gemini' ? 'AI + EVIDENCE' : 'EVIDENCE-ONLY'}</span></footer>
+            <footer className="no-print mt-3 flex shrink-0 items-center justify-between gap-2 px-1 font-mono text-[10px]" style={{ color: 'var(--muted)' }}><span>ASTRADOC · BUILT BY RISHAV SINGH · <a href="https://github.com/bhumisingh-tech/AstraDoc-AI" target="_blank" rel="noopener noreferrer" className="underline">GITHUB</a> · REACT + FASTAPI + GEMINI</span><span title="Gemini is optional: it generates grounded answers from retrieved excerpts. Evidence-only mode still shows cited passages.">{session.passage_count} STARS INDEXED · {mode === 'gemini' ? 'AI + EVIDENCE' : 'EVIDENCE-ONLY'}</span></footer>
     </div>
   </MotionConfig>;
 }

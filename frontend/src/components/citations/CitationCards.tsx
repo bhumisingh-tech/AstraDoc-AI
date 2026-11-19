@@ -11,17 +11,21 @@ function Highlight({ text, query }: { text: string; query: string }) {
   return <>{text.split(/([\p{L}\p{N}]+)/gu).map((part, index) => words.has(part.toLowerCase()) ? <mark key={index} className="source-highlight">{part}</mark> : <span key={index}>{part}</span>)}</>;
 }
 
+function pageLabel(source: Source): string {
+  const match = source.source.match(/(?:page|p\\.)\\s*(\\d+)/i);
+  return match ? `p.${match[1]}` : '';
+}
 export function CitationChip({ number, source, onOpen }: { number: number; source?: Source; onOpen: (source: Source) => void }) {
   if (!source) return <span className="font-mono text-xs">[Source {number}]</span>;
-  return <span className="citation-anchor"><button type="button" className="citation-chip" onClick={() => onOpen(source)} aria-label={`Open source ${number}, ${source.source}`}>
-    ✦ Source {number}
+  return <span className="citation-anchor"><button type="button" className="citation-chip" onClick={() => onOpen(source)} title={`Open source ${number}: ${source.source}`} aria-label={`Open source ${number}, ${source.source}`}>
+    [{number}] {pageLabel(source)}
   </button><span className="citation-preview" role="tooltip"><strong>{source.source}</strong><span>{source.text.slice(0, 240)}{source.text.length > 240 ? '…' : ''}</span><small>{Math.round(source.score * 100)}% relevance · Click for evidence</small></span></span>;
 }
 
 export function CitationCards({ sources, query, onOpen }: { sources: Source[]; query: string; onOpen: (source: Source) => void }) {
   if (!sources.length) return null;
   return <details className="citation-list mt-4" aria-label="Retrieved citation cards"><summary className="eyebrow mb-2 cursor-pointer select-none rounded-lg py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">View supporting evidence · {sources.length} passages</summary><div className="flex flex-wrap gap-2">{sources.map(source => <button className="citation-card" key={`${source.citation}-${source.id}`} type="button" onClick={() => onOpen(source)} aria-label={`Read source ${source.citation} from ${source.source}`}>
-    <span className="flex items-center gap-2"><FileText size={14}/><strong className="truncate">{source.source}</strong><ArrowUpRight size={12}/></span>
+    <span className="flex items-center gap-2"><FileText size={14}/><strong className="truncate">[{source.citation}] {source.source}</strong><ArrowUpRight size={12}/></span>
     <span className="mt-2 block line-clamp-2 text-left text-xs leading-5" style={{color:'var(--muted)'}}><Highlight text={source.text} query={query}/></span>
     <span className="mt-2 flex items-center gap-2 text-[10px] font-mono"><span className="relevance-track"><span style={{width:`${Math.max(0,Math.min(100,source.score*100))}%`}}/></span>{Math.round(source.score*100)}%</span>
   </button>)}</div></details>;
