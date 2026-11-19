@@ -22,6 +22,40 @@ from pypdf import PdfReader
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+
+# Optional dense retrieval. Disabled by default for small Render instances.
+import threading
+SEMANTIC_SEARCH = os.getenv("SEMANTIC_SEARCH", "0").lower() in {"1", "true", "yes"}
+SEMANTIC_MODEL = os.getenv("SEMANTIC_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+SEMANTIC_WEIGHT = max(0.0, min(1.0, float(os.getenv("SEMANTIC_WEIGHT", "0.75"))))
+_model = None
+_model_lock = threading.Lock()
+
+def dense_vectors(texts):
+    global _model
+    if not SEMANTIC_SEARCH:
+        return None
+    with _model_lock:
+        if _model is None:
+            from sentence_transformers import SentenceTransformer
+            _model = SentenceTransformer(SEMANTIC_MODEL)
+    import numpy as np
+    return np.asarray(_model.encode(texts, normalize_embeddings=True, show_progress_bar=False), dtype=np.float32)
+
+def hybrid_find(question, passages, vec, mat, dense, limit, min_score=None):
+    import numpy as np
+    lexical = cosine_similarity(vec.transform([question]), mat).ravel()
+    if dense is None:
+        scores = lexical
+        threshold = MIN_RELEVANCE_SCORE if min_score is None else min_score
+    else:
+        query = dense_vectors([question])[0]
+        semantic = np.clip(dense @ query, 0, 1)
+        scores = (1 - SEMANTIC_WEIGHT) * lexical + SEMANTIC_WEIGHT * semantic
+        threshold = float(os.getenv("MIN_HYBRID_SCORE", "0.20")) if min_score is None else min_score
+    ranked = np.argsort(scores)[::-1]
+    return [(passages[int(i)], float(scores[i])) for i in ranked if scores[i] >= threshold][:limit]
+
 logger = logging.getLogger("docchat.rag")
 
 # Minimum cosine score to treat a passage as relevant. Filters very weak lexical
@@ -31,27 +65,22 @@ MIN_RELEVANCE_SCORE = float(os.getenv("MIN_RELEVANCE_SCORE", "0.03"))
 MIN_BEST_SCORE = float(os.getenv("MIN_BEST_SCORE", "0.05"))
 
 
-def _ocr_pdf_images(raw: bytes) -> list[tuple[str, str]]:
-    """Best-effort OCR for scanned PDFs. Returns [] if OCR deps are unavailable."""
+def _ocr_pdf_images(raw: bytes, page_indices: list[int]) -> dict[int, str]:
+    """OCR only pages without selectable text; avoid rendering entire huge PDFs."""
     try:
-        from pdf2image import convert_from_bytes  # type: ignore
-        import pytesseract  # type: ignore
-    except Exception:
-        return []
-    try:
-        images = convert_from_bytes(raw, dpi=220)
-    except Exception as exc:
-        logger.warning("PDF OCR image conversion unavailable: %s", type(exc).__name__)
-        return []
-    pages: list[tuple[str, str]] = []
-    for i, image in enumerate(images, 1):
+        from pdf2image import convert_from_bytes
+        import pytesseract
+    except ImportError:
+        logger.warning("OCR requires pytesseract and pdf2image")
+        return {}
+    result = {}
+    for index in page_indices[:int(os.getenv("OCR_MAX_PAGES", "30"))]:
         try:
-            text = pytesseract.image_to_string(image) or ""
+            images = convert_from_bytes(raw, dpi=180, first_page=index + 1, last_page=index + 1)
+            result[index] = pytesseract.image_to_string(images[0]) if images else ""
         except Exception as exc:
-            logger.warning("OCR failed on page %s: %s", i, type(exc).__name__)
-            text = ""
-        pages.append((f"page {i} (OCR)", text))
-    return pages
+            logger.warning("OCR failed on page %s: %s", index + 1, type(exc).__name__)
+    return result
 
 
 def extract(file):
@@ -61,12 +90,11 @@ def extract(file):
     if name.lower().endswith(".pdf"):
         reader = PdfReader(io.BytesIO(raw))
         pages = [(f"{name} · page {i+1}", page.extract_text() or "") for i, page in enumerate(reader.pages)]
-        extracted_chars = sum(len((text or "").strip()) for _, text in pages)
-        # Fallback to OCR when selectable text is missing/very sparse (scanned PDFs).
-        if extracted_chars < 40:
-            ocr_pages = _ocr_pdf_images(raw)
-            if ocr_pages:
-                pages = [(f"{name} · {label}", text) for label, text in ocr_pages]
+        missing = [i for i, (_, text) in enumerate(pages) if len(text.strip()) < 35]
+        if missing:
+            for i, text in _ocr_pdf_images(raw, missing).items():
+                if len(text.strip()) > len(pages[i][1].strip()):
+                    pages[i] = (f"{name} · page {i+1} (OCR)", text)
         return pages
 
     if name.lower().endswith(".docx"):
