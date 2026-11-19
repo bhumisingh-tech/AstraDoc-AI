@@ -163,7 +163,7 @@ Success metrics: 95% citation accuracy in the evaluation set and mobile usabilit
   const enabled = Boolean(session.session_id && session.passage_count);
   const latest = messages[messages.length-1];
   const openSource = (source: Source, query: string) => setActiveSource({source,query});
-  const activeEvidence = messages.findLast(message => message.question === activeSource?.query && message.sources.some(item => item.id === activeSource?.source.id && item.file === activeSource?.source.file))?.sources ?? [];
+  const activeEvidence = [...messages].reverse().find(message => message.question === activeSource?.query && message.sources.some(item => item.id === activeSource?.source.id && item.file === activeSource?.source.file))?.sources ?? [];
   const locateSource = (source: Source) => { setFocusId(source.id); setMapOpen(true); setRightTab('map'); setMobileTab('map'); };
   const mapPanel = session.session_id && <Suspense fallback={<div className="skeleton h-64 rounded-xl" aria-label="Loading map"/>}><ConstellationMap sessionId={session.session_id} question={latest?.question} topK={preferences.topK} selectedIds={latest?.sources.map(src=>src.id)??[]} focusId={focusId} /></Suspense>;
   const mode: AnswerMode = health?.answer_mode ?? 'evidence';
