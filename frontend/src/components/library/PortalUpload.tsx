@@ -69,7 +69,7 @@ export function PortalUpload({ documents, busy, progress, error, limitBytes, onU
       <span className="portal-orbit" aria-hidden="true"/>
       <div className="portal-core relative mb-5 flex h-16 w-16 items-center justify-center rounded-[22px]">{busy ? <Layers3 size={28}/> : <FileUp size={28}/>}</div>
       <p className="relative font-display text-lg font-semibold">{busy ? 'Mapping your knowledge…' : dragging ? 'Release to form a constellation' : 'Open the portal'}</p>
-      <p className="relative mt-2 max-w-[240px] text-xs leading-5" style={{ color:'var(--muted)' }}>{busy ? 'Uploading and indexing documents. Text extraction may take a moment.' : 'Drop files here, or click to browse. In-memory demo sessions have size limits; split very large files.'}</p>
+      <p className="relative mt-2 max-w-[240px] text-xs leading-5" style={{ color:'var(--muted)' }}>{busy ? 'Uploading and indexing documents. Text extraction may take a moment.' : 'Drop files here, or click to browse. Files are saved in your session when persistence is enabled.'}</p>
       <span className="relative mt-4 rounded-full border px-3 py-1.5 font-mono text-[10px]" style={{ color:'var(--muted)',borderColor:'var(--border)' }}>PDF · DOCX · TXT</span>
       {busy && <div className="absolute bottom-0 left-0 h-1 w-full" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress} aria-label="Upload transfer progress" style={{ background:'var(--border)' }}><div className="h-full transition-[width] duration-200" style={{ background:'var(--violet)',width:`${progress}%` }}/></div>}
     </motion.div>
@@ -84,7 +84,7 @@ export function PortalUpload({ documents, busy, progress, error, limitBytes, onU
           <button className="quiet-button !p-2" title={`Remove ${doc.name}`} aria-label={`Remove ${doc.name}`} type="button" disabled={busy} onClick={() => onRemove(doc.name)}><Trash2 size={15}/></button>
         </motion.article>)}
       </AnimatePresence>
-      {!documents.length && <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed p-5 text-center text-xs" style={{ borderColor:'var(--border)',color:'var(--muted)' }}><CheckCircle2 size={19}/>Your library is empty. Your uploaded documents stay in this server session.</div>}
+      {!documents.length && <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed p-5 text-center text-xs" style={{ borderColor:'var(--border)',color:'var(--muted)' }}><CheckCircle2 size={19}/>Your library is empty. Your uploaded documents are saved in the server database when persistence is enabled.</div>}
     </div>
     <div className="border-t pt-4" style={{ borderColor:'var(--border)' }}><div className="mb-2 flex justify-between font-mono text-[10px]" style={{ color:'var(--muted)' }}><span>STORAGE USED</span><span>{readableSize(existingBytes)} / {readableSize(limit)}</span></div><div className="h-1.5 overflow-hidden rounded-full" style={{ background:'var(--border)' }}><div className="h-full rounded-full transition-all" style={{ background:'var(--cyan)',width:`${Math.min(existingBytes/limit*100,100)}%` }}/></div></div>
   </section>;
