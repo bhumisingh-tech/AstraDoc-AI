@@ -18,7 +18,7 @@
   --noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
 }
 :root.dark {
-  color-scheme: dark; --bg: #070816; --bg-elevated: #0c1024; --fg: #f4f5ff; --muted: #9aa3c0;
+  color-scheme: dark; --bg: #05060D; --bg-elevated: #0b0e1b; --fg: #f4f5ff; --muted: #9aa3c0;
   --panel: rgba(18,22,48,.45); --panel-strong: rgba(22,27,58,.62); --panel-solid: rgba(18,22,48,.82);
   --border: rgba(255,255,255,.10); --border-subtle: rgba(255,255,255,.06); --border-strong: rgba(174,151,255,.28);
   --violet: #a78bfa; --cyan: #22d3ee; --magenta: #e879f9; --amber: #fbbf24; --green: #34d399;
@@ -215,3 +215,15 @@ button, input, textarea, select { font: inherit; } button { cursor: pointer; } b
   .print-answer { white-space:pre-wrap; }
   .print-conversation blockquote { padding:2mm 3mm; border-left:2px solid #64748b; margin:3mm 0; color:#334155; }
 }
+
+/* AstraDoc premium refinement — motion respects reduced-motion settings. */
+:root.dark .cosmos { background-color:#05060D; }
+:root.dark .glass { border-color:rgba(180,188,255,.11); box-shadow:0 20px 56px rgba(0,0,0,.32),inset 0 1px rgba(255,255,255,.055); }
+:root.dark .glass-gradient { box-shadow:0 12px 38px rgba(89,57,194,.16),inset 0 1px rgba(255,255,255,.07); }
+.citation-chip { font-family:'JetBrains Mono',ui-monospace,monospace; letter-spacing:-.02em; }
+.citation-chip:hover,.citation-chip:focus-visible { box-shadow:0 0 0 3px var(--ring-cyan); }
+.micro-button[aria-pressed="true"] { color:var(--cyan); border-color:var(--cyan); background:var(--ring-cyan); }
+@keyframes wake-pulse { 0%,100% { opacity:.45; transform:scale(.94); } 50% { opacity:1; transform:scale(1.08); } }
+.wake-orb { animation:wake-pulse 2.4s ease-in-out infinite; box-shadow:0 0 50px rgba(167,139,250,.32); }
+@media (prefers-reduced-motion:reduce) { .wake-orb { animation:none; } }
+:root[data-motion="reduced"] .wake-orb { animation:none; }
