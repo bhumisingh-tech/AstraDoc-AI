@@ -482,7 +482,7 @@ async def chat(body: ChatBody):
                                     raise TimeoutError("Gemini took too long to start responding")
                                 if elapsed > 75:
                                     raise TimeoutError("Gemini response exceeded the time budget")
-                                yield ": keepalive\\n\\n"
+                                yield ": keepalive\n\n"
                                 continue
                             if kind == "token":
                                 text = str(payload)
