@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, MotionConfig } from 'framer-motion';
-import { BookOpenText, ChevronLeft, ChevronRight, Moon, Orbit, PanelLeftClose, PanelLeftOpen, Sun, Trash2, WifiOff, Radar, SlidersHorizontal, Download, Sparkles } from 'lucide-react';
+import { BookOpenText, Moon, Orbit, PanelLeftClose, PanelLeftOpen, Sun, Trash2, WifiOff, Radar, SlidersHorizontal, Download, Sparkles } from 'lucide-react';
 import { api, streamChat, uploadWithProgress, type AnswerMode, type Health, type SessionInfo, type Source } from './lib/api';
 import { PortalUpload } from './components/library/PortalUpload';
 import { StreamingChat, type ChatMessage } from './components/chat/StreamingChat';
