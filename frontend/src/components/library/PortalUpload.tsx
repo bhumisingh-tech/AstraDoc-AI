@@ -62,10 +62,10 @@ export function PortalUpload({ documents, busy, progress, error, limitBytes, onU
     if (empty) return setValidation(`${empty.name} is empty. Please choose a file containing text.`);
     const names = files.map(file => file.name);
     if (new Set(names).size !== names.length || names.some(name => documents.some(doc => doc.name === name))) {
-      return setValidation('Two files have the same name. Rename the duplicate before uploading.');
+      return setValidation('Duplicate filename detected. Rename it before uploading.');
     }
     const sum = files.reduce((total, file) => total + file.size, 0);
-    if (sum > remaining) return setValidation(`Only ${readableSize(remaining)} remains of the ${readableSize(limit)} session limit. Remove a file or split large documents. Very large/GB files need a production setup with persistent storage.`);
+    if (sum > remaining) return setValidation(`Only ${readableSize(remaining)} remains of the ${readableSize(limit)} session limit. Remove a file or split large documents. Use the separate cloud-upload option for larger files.`);
     onUpload(files);
   };
   const drop = (event: DragEvent<HTMLElement>) => {
@@ -79,32 +79,32 @@ export function PortalUpload({ documents, busy, progress, error, limitBytes, onU
   const browseFromKey = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); input.current?.click(); }
   };
-  return <section className="flex h-full min-h-0 flex-col gap-5" aria-label="Document library">
+  return <section className="flex h-full min-h-0 flex-col gap-3" aria-label="Document library">
     <div className="flex items-start justify-between gap-2">
-      <div><p className="eyebrow">YOUR ARCHIVE</p><h2 className="mt-1 font-display text-xl font-bold tracking-tight">Document library</h2></div>
+      <div><p className="eyebrow">YOUR ARCHIVE</p><h2 className="mt-1 font-display text-lg font-bold tracking-tight">Document library</h2></div>
       <span className="rounded-xl border px-2 py-1 font-mono text-[10px]" style={{ borderColor:'var(--border)',color:'var(--muted)' }}>{documents.length} FILES</span>
     </div>
     <input ref={input} aria-label="Choose PDF DOCX or TXT documents" className="sr-only" type="file" multiple accept=".pdf,.docx,.txt" onChange={browse} disabled={busy}/>
     <motion.div
-      className={`portal relative flex min-h-[225px] shrink-0 flex-col items-center justify-center overflow-hidden rounded-[24px] border border-dashed px-4 py-6 text-center ${dragging ? 'portal-active' : ''}`}
+      className={`portal relative flex min-h-[155px] shrink-0 flex-col items-center justify-center overflow-hidden rounded-[18px] border border-dashed px-3 py-4 text-center ${dragging ? 'portal-active' : ''}`}
       role="button" tabIndex={busy ? -1 : 0} aria-disabled={busy} aria-label="Upload documents. Press Enter or Space to browse, or drag files here"
       onClick={() => { if (!busy) input.current?.click(); }} onKeyDown={browseFromKey}
       onDragOver={event => { event.preventDefault(); if (!busy) setDragging(true); }}
       onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }}
       onDrop={drop} whileHover={busy ? undefined : { scale: 1.012 }} transition={{ type:'spring', stiffness:230,damping:24 }}
     >
-      <span className="portal-orbit" aria-hidden="true"/>
-      <div className="portal-core relative mb-5 flex h-16 w-16 items-center justify-center rounded-[22px]">{busy ? <Layers3 size={28}/> : <FileUp size={28}/>}</div>
-      <p className="relative font-display text-lg font-semibold">{busy ? 'Mapping your knowledge…' : dragging ? 'Release to form a constellation' : 'Open the portal'}</p>
-      <p className="relative mt-2 max-w-[240px] text-xs leading-5" style={{ color:'var(--muted)' }}>{busy ? 'Uploading and indexing documents. Text extraction may take a moment.' : 'Drop files here, or click to browse. Files are saved in your session when persistence is enabled.'}</p>
-      <span className="relative mt-4 rounded-full border px-3 py-1.5 font-mono text-[10px]" style={{ color:'var(--muted)',borderColor:'var(--border)' }}>PDF · DOCX · TXT</span>
-      <div className="relative mt-3 flex flex-col items-center gap-2">
+      
+      <div className="portal-core relative mb-2 flex h-11 w-11 items-center justify-center rounded-[14px]">{busy ? <Layers3 size={20}/> : <FileUp size={28}/>}</div>
+      <p className="relative font-display text-sm font-semibold">{busy ? 'Mapping your knowledge…' : dragging ? 'Release to upload files' : 'Drop or browse documents'}</p>
+      <p className="relative mt-1 max-w-[250px] text-[11px] leading-4" style={{ color:'var(--muted)' }}>{busy ? 'Uploading and indexing documents. Text extraction may take a moment.' : 'PDF, DOCX or TXT · Indexed for AI chat'}</p>
+      
+      <div className="relative mt-2 flex flex-col items-center gap-1">
         <input ref={largeInput} type="file" accept=".pdf,.docx,.txt" className="hidden" onChange={event => void handleLargeFile(event.target.files?.[0])}/>
         <button type="button" disabled={largeBusy || busy} onClick={event => { event.stopPropagation(); largeInput.current?.click(); }}
           className="rounded-lg border px-3 py-2 text-xs font-semibold" style={{ borderColor: 'var(--border-strong)', color: 'var(--text)' }}>
           {largeBusy ? `Uploading large file… ${largeProgress}%` : 'Upload to cloud (up to 5 GiB)'}
         </button>
-        <p className="max-w-[260px] text-center text-[10px]" style={{ color: 'var(--muted)' }}>{cloudEnabled ? 'Cloud storage ready · Requires access token · Stored files are not yet searchable.' : 'Cloud storage not connected · 5 GiB uploads unavailable until S3/R2 is configured.'}</p>
+        <p className="max-w-[260px] text-center text-[10px] leading-4" style={{ color: 'var(--muted)' }}>{cloudEnabled ? 'Cloud storage ready · Requires access token · Stored files are not yet searchable.' : 'Cloud storage not connected · 5 GiB uploads unavailable until S3/R2 is configured.'}</p>
         {largeBusy && <progress max={100} value={largeProgress} className="w-full" aria-label="Large file upload progress"/>}
         {largeStatus && <p role="status" className="max-w-[280px] break-words text-xs" style={{ color: 'var(--muted)' }}>{largeStatus}</p>}
       </div>
@@ -115,15 +115,15 @@ export function PortalUpload({ documents, busy, progress, error, limitBytes, onU
     <div className="flex items-center justify-between gap-2"><p className="eyebrow">INDEXED DOCUMENTS</p><button className="micro-button" type="button" disabled={busy || remaining === 0} onClick={() => input.current?.click()}><Plus size={14}/> Add files</button></div>
     <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1" aria-live="polite">
       <AnimatePresence initial={false}>
-        {documents.map(doc => <motion.article layout initial={{ opacity:0,y:10 }} animate={{ opacity:1,y:0 }} exit={{ opacity:0,x:-20 }} key={doc.name} className="document-item group flex items-center gap-3 rounded-2xl p-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ color:'var(--cyan)',background:'var(--ring)' }}>{doc.type === 'txt' ? <FileType2 size={20}/> : <FileText size={20}/>}</div>
-          <div className="min-w-0 flex-1"><p title={doc.name} className="truncate text-sm font-semibold">{doc.name}</p><p className="mt-1 font-mono text-[10px]" style={{ color:'var(--muted)' }}>{doc.type.toUpperCase()} · {readableSize(doc.size_bytes)} · {doc.pages ? `${doc.pages} pages · ` : ''}{doc.passages} passages</p></div>
+        {documents.map(doc => <motion.article layout initial={{ opacity:0,y:10 }} animate={{ opacity:1,y:0 }} exit={{ opacity:0,x:-20 }} key={doc.name} className="document-item group flex items-center gap-2 rounded-xl p-2.5">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" style={{ color:'var(--cyan)',background:'var(--ring)' }}>{doc.type === 'txt' ? <FileType2 size={20}/> : <FileText size={20}/>}</div>
+          <div className="min-w-0 flex-1"><p title={doc.name} className="truncate text-sm font-semibold">{doc.name}</p><p className="mt-0.5 font-mono text-[10px]" style={{ color:'var(--muted)' }}>{doc.type.toUpperCase()} · {readableSize(doc.size_bytes)} · {doc.pages ? `${doc.pages} pages · ` : ''}{doc.passages} passages</p></div>
           <button className="quiet-button !p-2" title={`Remove ${doc.name}`} aria-label={`Remove ${doc.name}`} type="button" disabled={busy} onClick={() => onRemove(doc.name)}><Trash2 size={15}/></button>
         </motion.article>)}
       </AnimatePresence>
-      {!documents.length && <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed p-5 text-center text-xs" style={{ borderColor:'var(--border)',color:'var(--muted)' }}><CheckCircle2 size={19}/>Your library is empty. Your uploaded documents are saved in the server database when persistence is enabled.</div>}
+      {!documents.length && <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed p-5 text-center text-xs" style={{ borderColor:'var(--border)',color:'var(--muted)' }}><CheckCircle2 size={19}/>No indexed documents yet. Drop a file above to start a cited conversation.</div>}
     </div>
-    <div className="border-t pt-4 space-y-3" style={{ borderColor:'var(--border)' }}>
+    <div className="border-t pt-3 space-y-2" style={{ borderColor:'var(--border)' }}>
       <div><div className="mb-2 flex justify-between gap-2 font-mono text-[10px]" style={{ color:'var(--muted)' }}><span>AI CHAT LIBRARY</span><span>{readableSize(existingBytes)} / {readableSize(limit)}</span></div><div className="h-1.5 overflow-hidden rounded-full" style={{ background:'var(--border)' }}><div className="h-full rounded-full transition-all" style={{ background:'var(--cyan)',width:`${Math.min(existingBytes/limit*100,100)}%` }}/></div><p className="mt-1 text-[10px]" style={{color:'var(--muted)'}}>Files indexed for questions and answers</p></div>
       <div><div className="flex justify-between gap-2 font-mono text-[10px]" style={{ color:'var(--muted)' }}><span>CLOUD FILE UPLOAD</span><span>UP TO 5 GiB / FILE</span></div><p className="mt-1 text-[10px]" style={{color: cloudEnabled ? 'var(--cyan)' : 'var(--muted)'}}>{cloudEnabled ? 'Storage connected · upload only, AI indexing pending' : 'Not configured · connect S3 or R2 to enable'}</p></div>
     </div>

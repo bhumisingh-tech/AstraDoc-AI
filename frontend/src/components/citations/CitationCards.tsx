@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUpRight, FileText, X } from 'lucide-react';
+import { ArrowUpRight, ChevronLeft, ChevronRight, FileText, X } from 'lucide-react';
 import type { Source } from '../../lib/api';
 
 function tokens(question: string): Set<string> {
@@ -12,7 +12,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
 }
 
 function pageLabel(source: Source): string {
-  const match = source.source.match(/(?:page|p\\.)\\s*(\\d+)/i);
+  const match = source.source.match(/(?:page|p\.)\s*(\d+)/i);
   return match ? `p.${match[1]}` : '';
 }
 export function CitationChip({ number, source, onOpen }: { number: number; source?: Source; onOpen: (source: Source) => void }) {
@@ -31,7 +31,7 @@ export function CitationCards({ sources, query, onOpen }: { sources: Source[]; q
   </button>)}</div></details>;
 }
 
-export function SourceDrawer({ source, query, onClose, onLocate }: { source: Source | null; query: string; onClose: () => void; onLocate: (source: Source) => void }) {
+export function SourceDrawer({ source, query, onClose, onLocate, sources = [], onNavigate }: { source: Source | null; query: string; onClose: () => void; onLocate: (source: Source) => void; sources?: Source[]; onNavigate?: (source: Source) => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -44,6 +44,9 @@ export function SourceDrawer({ source, query, onClose, onLocate }: { source: Sou
     return () => { window.removeEventListener('keydown', key); oldFocus?.focus(); };
   }, [source, onClose]);
   if (!source) return null;
+  const position = sources.findIndex(item => item.id === source.id && item.file === source.file);
+  const previous = position > 0 ? sources[position - 1] : null;
+  const next = position >= 0 && position < sources.length - 1 ? sources[position + 1] : null;
   return <div className="source-overlay no-print" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><aside className="source-drawer glass" role="dialog" aria-modal="true" aria-label={`Source ${source.citation} details`} onKeyDown={event => {
     if (event.key !== 'Tab') return;
     const nodes = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled])'));
@@ -51,7 +54,7 @@ export function SourceDrawer({ source, query, onClose, onLocate }: { source: Sou
     if (!event.shiftKey && document.activeElement === nodes.at(-1)) {event.preventDefault();nodes[0]?.focus();}
   }}>
     <div className="flex items-center justify-between gap-2"><p className="eyebrow">SOURCE {source.citation} / PASSAGE {source.id + 1}</p><button ref={closeRef} type="button" className="quiet-button" onClick={onClose} aria-label="Close source drawer"><X size={18}/></button></div>
-    <h2 className="mt-5 break-words font-display text-xl font-semibold">{source.source}</h2>
+    <div className="mt-4 flex items-center justify-between gap-2"><span className="font-mono text-xs" style={{color:'var(--muted)'}}>{position >= 0 ? `Evidence ${position + 1} of ${sources.length}` : 'Source evidence'}</span><div className="flex gap-1"><button type="button" className="micro-button" disabled={!previous} aria-label="Previous source" onClick={() => previous && onNavigate?.(previous)}><ChevronLeft size={15}/></button><button type="button" className="micro-button" disabled={!next} aria-label="Next source" onClick={() => next && onNavigate?.(next)}><ChevronRight size={15}/></button></div></div><h2 className="mt-3 break-words font-display text-xl font-semibold">{source.source}</h2>
     <p className="mt-1 break-all text-xs" style={{color:'var(--muted)'}}>Document: {source.file}</p>
     <p className="mt-6 text-xs font-mono">Cosine relevance · {Math.round(source.score*100)}%</p><div className="relevance-track mt-2 !h-2"><span style={{width:`${Math.max(0,Math.min(100,source.score*100))}%`}}/></div>
     <h3 className="mt-8 mb-3 text-sm font-semibold">Original passage</h3><div className="source-passage text-sm leading-7"><Highlight text={source.text} query={query}/></div>

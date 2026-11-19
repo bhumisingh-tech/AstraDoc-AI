@@ -253,3 +253,26 @@ button, input, textarea, select { font: inherit; } button { cursor: pointer; } b
 :root.dark .micro-button:hover:not(:disabled),:root.dark .starter-chip:hover:not(:disabled) {background:rgba(34,211,238,.09);}
 :root.dark .status-dot {background:#22D3EE;box-shadow:0 0 12px rgba(34,211,238,.36);}
 @media (prefers-reduced-motion:reduce) { :root.dark .cosmos::before {animation:none;} }
+
+/* Workspace 2.0: content-first desktop and thumb-friendly mobile controls. */
+.workspace main .markdown-answer {font-size:14.5px;line-height:1.8}
+.workspace main .markdown-answer p {max-width:82ch}
+.workspace main .markdown-answer table {max-width:100%}
+.workspace .document-item {transition:border-color .15s,background-color .15s}
+.workspace .document-item:hover {border-color:var(--border-strong);background:var(--panel-solid)}
+.workspace .portal:focus-visible {outline:2px solid var(--cyan);outline-offset:3px}
+.source-drawer .source-passage {overflow-wrap:anywhere}
+@media (max-width:767px) {
+  .app-frame {padding:10px 10px max(10px,env(safe-area-inset-bottom));min-height:0}
+  .workspace {min-height:0}
+  .workspace .mobile-tab {min-width:0;flex-direction:column;gap:3px;padding:9px 3px;font-size:10px;line-height:1.2;border-radius:12px}
+  .workspace .mobile-tab svg {width:17px;height:17px}
+  .workspace main .markdown-answer {font-size:14px;line-height:1.75}
+  .chat-composer textarea {font-size:16px}
+  .source-overlay {padding:0}
+  .source-drawer {max-width:100%;width:100%;border-radius:18px 18px 0 0}
+}
+@media (max-width:390px) {
+  .workspace .mobile-tab {font-size:9px}
+  .app-frame header .quiet-button {padding:7px}
+}
