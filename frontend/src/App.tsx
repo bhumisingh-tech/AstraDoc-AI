@@ -48,6 +48,14 @@ export default function App() {
     isMounted.current = true;
     const controller = new AbortController();
     api.health(controller.signal).then(info => { setHealth(info); setOffline(false); }).catch(() => { if (!controller.signal.aborted) setOffline(true); });
+    const savedId = localStorage.getItem('astradoc-session-id');
+    if (savedId) api.session(savedId, controller.signal).then(info => {
+      if (controller.signal.aborted) return;
+      currentSession.current = info; setSession(info);
+      setMessages(info.history.map((item, index) => ({ id: `restored-${index}`, question: item.question, answer: item.answer, sources: item.sources, mode: item.mode, status: 'done' })));
+      api.insights(savedId).then(details => { if (!controller.signal.aborted) setSuggested(details.suggested_questions); }).catch(() => {});
+      setDocumentRevision(value => value + 1);
+    }).catch(() => { if (!controller.signal.aborted) localStorage.removeItem('astradoc-session-id'); });
     return () => { isMounted.current = false; controller.abort(); chatAbort.current?.abort(); };
   }, []);
 
@@ -61,7 +69,7 @@ export default function App() {
     const { promise } = uploadWithProgress(files, currentSession.current.session_id ?? undefined, setUploadProgress);
     try {
       const result = await promise;
-      currentSession.current = result; setSession(result); setMessages([]); setChatError(null); setDocumentRevision(value => value + 1);
+      currentSession.current = result; setSession(result); if (result.session_id) localStorage.setItem('astradoc-session-id', result.session_id); else localStorage.removeItem('astradoc-session-id'); setMessages([]); setChatError(null); setDocumentRevision(value => value + 1);
       if (result.session_id) await refreshInsights(result.session_id);
       setMobileTab('chat');
     } catch (error) { setUploadError(messageError(error)); }
@@ -72,7 +80,7 @@ export default function App() {
     setBusyUpload(true); setUploadError(null);
     try {
       const result = await api.removeFile(sid, name);
-      currentSession.current = result; setSession(result); setMessages([]); setChatError(null); setDocumentRevision(value => value + 1);
+      currentSession.current = result; setSession(result); if (result.session_id) localStorage.setItem('astradoc-session-id', result.session_id); else localStorage.removeItem('astradoc-session-id'); setMessages([]); setChatError(null); setDocumentRevision(value => value + 1);
       if (result.session_id) await refreshInsights(result.session_id); else setSuggested([]);
     } catch (error) { setUploadError(messageError(error)); }
     finally { setBusyUpload(false); }
