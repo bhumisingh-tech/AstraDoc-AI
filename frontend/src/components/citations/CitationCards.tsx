@@ -12,7 +12,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
 }
 
 function pageLabel(source: Source): string {
-  const match = source.source.match(/(?:page|p\\.)\\s*(\\d+)/i);
+  const match = source.source.match(/(?:page|p\.)\s*(\d+)/i);
   return match ? `p.${match[1]}` : '';
 }
 export function CitationChip({ number, source, onOpen }: { number: number; source?: Source; onOpen: (source: Source) => void }) {
