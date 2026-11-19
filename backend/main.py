@@ -13,6 +13,8 @@ Updates in this revision:
 from __future__ import annotations
 
 import asyncio
+import sqlite3
+import time
 import json
 import logging
 import os
@@ -42,6 +44,9 @@ from rag import (
     gemini,
     gemini_stream,
     index,
+    dense_vectors,
+    hybrid_find,
+    SEMANTIC_SEARCH,
     rerank_with_gemini,
 )
 
@@ -97,11 +102,62 @@ class Session:
     history: list[dict] = field(default_factory=list)
     last_question: str | None = None
     last_retrieved_ids: list[int] = field(default_factory=list)
+    dense: object = None
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
 sessions: dict[str, Session] = {}
 sessions_lock = threading.Lock()
+
+# Anonymous session persistence. Render Free has ephemeral storage: a persistent
+# disk or external database is needed to retain these records across deploys.
+DATABASE_PATH = Path(os.getenv("DATABASE_PATH", str(BASE / "data" / "astradoc.sqlite3")))
+DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+PERSIST_SESSIONS = os.getenv("PERSIST_SESSIONS", "1").lower() in {"1", "true", "yes"}
+SESSION_TTL_DAYS = max(1, int(os.getenv("SESSION_TTL_DAYS", "30")))
+
+def db_connect():
+    conn = sqlite3.connect(DATABASE_PATH, timeout=30)
+    conn.execute("PRAGMA busy_timeout=30000")
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, created_at INTEGER, updated_at INTEGER, history TEXT NOT NULL DEFAULT '[]')")
+    conn.execute("CREATE TABLE IF NOT EXISTS documents (session_id TEXT NOT NULL, name TEXT NOT NULL, content BLOB NOT NULL, PRIMARY KEY(session_id, name))")
+    return conn
+
+def persist_session(sid: str, session: Session):
+    if not PERSIST_SESSIONS:
+        return
+    with db_connect() as conn:
+        now = int(time.time())
+        conn.execute("INSERT INTO sessions(id, created_at, updated_at, history) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at, history=excluded.history", (sid, now, now, json.dumps(session.history)))
+        conn.execute("DELETE FROM documents WHERE session_id=?", (sid,))
+        conn.executemany("INSERT INTO documents(session_id, name, content) VALUES (?, ?, ?)", [(sid, f.name, f.data) for f in session.files])
+
+def persist_history(sid: str, history: list[dict]):
+    if PERSIST_SESSIONS:
+        with db_connect() as conn:
+            conn.execute("UPDATE sessions SET history=?, updated_at=? WHERE id=?", (json.dumps(history), int(time.time()), sid))
+
+def delete_session(sid: str):
+    if PERSIST_SESSIONS:
+        with db_connect() as conn:
+            conn.execute("DELETE FROM documents WHERE session_id=?", (sid,))
+            conn.execute("DELETE FROM sessions WHERE id=?", (sid,))
+
+def restore_session(sid: str):
+    if not PERSIST_SESSIONS:
+        return None
+    with db_connect() as conn:
+        row = conn.execute("SELECT history, updated_at FROM sessions WHERE id=?", (sid,)).fetchone()
+        if row is None or int(time.time()) - row[1] > SESSION_TTL_DAYS * 86400:
+            return None
+        files = [MemoryFile(name, bytes(data)) for name, data in conn.execute("SELECT name, content FROM documents WHERE session_id=? ORDER BY rowid", (sid,))]
+        if not files:
+            return None
+    session = create_session(files)
+    session.history = json.loads(row[0])
+    return session
+
 
 
 class ChatBody(BaseModel):
@@ -115,7 +171,12 @@ def get_session(session_id: str) -> Session:
     with sessions_lock:
         session = sessions.get(session_id)
     if session is None:
-        raise HTTPException(status_code=404, detail="Session not found. Upload documents again.")
+        session = restore_session(session_id)
+        if session is not None:
+            with sessions_lock:
+                sessions[session_id] = session
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found or expired. Upload documents again.")
     return session
 
 
@@ -139,7 +200,7 @@ def create_session(files: list[MemoryFile]) -> Session:
         stats = [file_metadata(f) for f in files]
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Cannot read or index document: {exc}") from exc
-    if not passage_data:
+    if not passage_data or vec is None:
         raise HTTPException(
             status_code=422,
             detail=(
@@ -147,7 +208,13 @@ def create_session(files: list[MemoryFile]) -> Session:
                 "dependencies (tesseract/poppler) on the server or upload a text-based file."
             ),
         )
-    return Session(files=files, passages=passage_data, vec=vec, mat=mat, file_stats=stats)
+    dense = None
+    if SEMANTIC_SEARCH:
+        try:
+            dense = dense_vectors([p["text"] for p in passage_data])
+        except Exception as exc:
+            logger.warning("Semantic embeddings unavailable, using lexical fallback: %s", type(exc).__name__)
+    return Session(files=files, passages=passage_data, vec=vec, mat=mat, file_stats=stats, dense=dense)
 
 
 def basic_info(session_id: str, s: Session) -> dict:
@@ -155,6 +222,8 @@ def basic_info(session_id: str, s: Session) -> dict:
         "session_id": session_id,
         "documents": s.file_stats,
         "passage_count": len(s.passages),
+        "retrieval_mode": "hybrid-semantic" if s.dense is not None else "lexical",
+        "persistent": PERSIST_SESSIONS,
         "total_bytes": sum(len(f.data) for f in s.files),
         "gemini_rerank": GEMINI_RERANK and bool(os.getenv("GEMINI_API_KEY")), "access_token_required": bool(DOCCHAT_ACCESS_TOKEN),
         "limits": {
@@ -205,7 +274,7 @@ def is_broad_question(question: str) -> bool:
 def select_matches(s: Session, question: str, top_k: int) -> list[tuple[dict, float]]:
     if is_broad_question(question):
         return [(p, 1.0) for p in s.passages[:top_k]]
-    return find(question, s.passages, s.vec, s.mat, top_k)
+    return hybrid_find(question, s.passages, s.vec, s.mat, s.dense, top_k)
 
 
 def reliable_matches(question: str, matches: list[tuple[dict, float]]) -> list[tuple[dict, float]]:
@@ -235,6 +304,8 @@ def health():
         "status": "ok",
         "app": APP_NAME,
         "gemini_configured": bool(os.getenv("GEMINI_API_KEY")),
+        "semantic_enabled": SEMANTIC_SEARCH,
+        "persistent": PERSIST_SESSIONS,
         "answer_mode": "gemini" if os.getenv("GEMINI_API_KEY") else "evidence",
         "gemini_streaming": GEMINI_STREAMING and bool(os.getenv("GEMINI_API_KEY")),
         "model": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
@@ -246,6 +317,11 @@ def health():
         },
     }
 
+
+@app.get("/api/session/{session_id}")
+def session_detail(session_id: str):
+    s = get_session(session_id)
+    return {**basic_info(session_id, s), "history": s.history}
 
 @app.post("/api/upload")
 async def upload(
@@ -293,6 +369,7 @@ async def upload(
     sid = session_id or uuid.uuid4().hex
     with sessions_lock:
         sessions[sid] = new_session  # Reindexing intentionally resets chat and map state.
+    persist_session(sid, new_session)
     return basic_info(sid, new_session)
 
 
@@ -306,10 +383,12 @@ async def remove_file(file_name: str, session_id: str = Query(...)):
     if not remaining:
         with sessions_lock:
             sessions.pop(session_id, None)
+        delete_session(session_id)
         return {"session_id": None, "documents": [], "passage_count": 0, "total_bytes": 0, "limits": {"max_upload_bytes": MAX_UPLOAD_BYTES, "max_file_bytes": MAX_FILE_BYTES, "max_files": MAX_FILES}}
     updated = await asyncio.to_thread(create_session, remaining)
     with sessions_lock:
         sessions[session_id] = updated
+    persist_session(session_id, updated)
     return basic_info(session_id, updated)
 
 
@@ -442,6 +521,7 @@ async def chat(body: ChatBody):
                 s.history.append(entry)
             s.last_question = question
             s.last_retrieved_ids = [src["id"] for src in sources]
+            await asyncio.to_thread(persist_history, body.session_id, s.history)
             yield sse("done", {"message_index": len(s.history) - 1})
         except Exception:
             logger.exception("Chat request failed")
@@ -555,6 +635,7 @@ def clear_chat(session_id: str):
         s.history.clear()
         s.last_question = None
         s.last_retrieved_ids.clear()
+        persist_history(session_id, s.history)
     return {"cleared": True}
 
 
