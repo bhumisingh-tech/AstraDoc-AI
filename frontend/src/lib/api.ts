@@ -14,6 +14,8 @@ export interface SessionInfo {
   documents: DocumentStat[];
   passage_count: number;
   total_bytes: number;
+  retrieval_mode?: string;
+  persistent?: boolean;
   limits?: { max_upload_bytes: number; max_file_bytes: number; max_files: number };
 }
 export interface Health {
@@ -97,6 +99,7 @@ const params = (values: Record<string, string | number | undefined>): string => 
 
 export const api = {
   health: (signal?: AbortSignal) => json<Health>('/health', { signal }),
+  session: (id: string, signal?: AbortSignal) => json<SessionInfo & { history: Array<{ question: string; answer: string; sources: Source[]; mode: AnswerMode }> }>(`/session/${encodeURIComponent(id)}`, {signal}),
   upload: (files: File[], sessionId?: string, signal?: AbortSignal) => {
     const body = new FormData();
     files.forEach(file => body.append('files', file));
