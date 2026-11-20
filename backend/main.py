@@ -13,6 +13,7 @@ Updates in this revision:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import sqlite3
 import time
 import json
@@ -29,7 +30,7 @@ from typing import Annotated
 
 import numpy as np
 import requests
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile, Request
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sklearn.decomposition import TruncatedSVD
@@ -63,21 +64,44 @@ APP_NAME = os.getenv("APP_NAME", "DocChat Constellation")
 
 logger = logging.getLogger("docchat")
 
-DOCCHAT_ACCESS_TOKEN = os.getenv("DOCCHAT_ACCESS_TOKEN", "").strip()
+# Verify bearer tokens with Supabase Auth rather than trusting a browser-supplied user ID.
+# No service-role key is required or exposed.
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://uwchgiomkbxltfbvdfeh.supabase.co").rstrip("/")
+SUPABASE_PUBLISHABLE_KEY = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
+current_user_id: contextvars.ContextVar[str | None] = contextvars.ContextVar("astradoc_user", default=None)
 
-def require_access(
-    authorization: str | None = Header(default=None),
-    x_docchat_token: str | None = Header(default=None, alias="X-DocChat-Token"),
-):
-    if not DOCCHAT_ACCESS_TOKEN:
+async def require_access(request: Request, authorization: str | None = Header(default=None)):
+    if not request.url.path.startswith("/api/") or request.url.path == "/api/health":
         return
-    token = ""
-    if authorization and authorization.lower().startswith("bearer "):
-        token = authorization[7:].strip()
-    elif x_docchat_token:
-        token = x_docchat_token.strip()
-    if token != DOCCHAT_ACCESS_TOKEN:
-        raise HTTPException(status_code=401, detail="Invalid or missing access token.")
+    if not SUPABASE_PUBLISHABLE_KEY:
+        raise HTTPException(503, "Login configuration is unavailable.")
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(401, "Sign in to use AstraDoc.")
+    token = authorization[7:].strip()
+    if not token:
+        raise HTTPException(401, "Missing access token.")
+    try:
+        result = await asyncio.to_thread(
+            requests.get,
+            f"{SUPABASE_URL}/auth/v1/user",
+            headers={"apikey": SUPABASE_PUBLISHABLE_KEY, "Authorization": f"Bearer {token}"},
+            timeout=8,
+        )
+        if result.status_code != 200:
+            raise HTTPException(401, "Your sign-in expired. Please sign in again.")
+        user_id = result.json().get("id")
+        if not isinstance(user_id, str) or not user_id:
+            raise HTTPException(401, "Invalid account.")
+        current_user_id.set(user_id)
+    except requests.RequestException as exc:
+        logger.warning("Supabase authentication unavailable: %s", type(exc).__name__)
+        raise HTTPException(503, "Authentication service is temporarily unavailable.") from exc
+
+def authenticated_owner() -> str:
+    owner = current_user_id.get()
+    if not owner:
+        raise HTTPException(401, "Sign in to use AstraDoc.")
+    return owner
 
 app = FastAPI(title=APP_NAME, version="1.3.0", dependencies=[Depends(require_access)])
 from large_uploads import router as large_upload_router
@@ -124,6 +148,8 @@ def db_connect():
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, created_at INTEGER, updated_at INTEGER, history TEXT NOT NULL DEFAULT '[]')")
     conn.execute("CREATE TABLE IF NOT EXISTS documents (session_id TEXT NOT NULL, name TEXT NOT NULL, content BLOB NOT NULL, PRIMARY KEY(session_id, name))")
+    if "owner_id" not in {row[1] for row in conn.execute("PRAGMA table_info(sessions)")}: 
+        conn.execute("ALTER TABLE sessions ADD COLUMN owner_id TEXT")
     return conn
 
 def persist_session(sid: str, session: Session):
@@ -131,7 +157,7 @@ def persist_session(sid: str, session: Session):
         return
     with db_connect() as conn:
         now = int(time.time())
-        conn.execute("INSERT INTO sessions(id, created_at, updated_at, history) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at, history=excluded.history", (sid, now, now, json.dumps(session.history)))
+        conn.execute("INSERT INTO sessions(id, created_at, updated_at, history, owner_id) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at, history=excluded.history, owner_id=excluded.owner_id", (sid, now, now, json.dumps(session.history), authenticated_owner()))
         conn.execute("DELETE FROM documents WHERE session_id=?", (sid,))
         conn.executemany("INSERT INTO documents(session_id, name, content) VALUES (?, ?, ?)", [(sid, f.name, f.data) for f in session.files])
 
@@ -170,6 +196,11 @@ class ChatBody(BaseModel):
 
 
 def get_session(session_id: str) -> Session:
+    # The lookup is required even when the indexed session is cached in RAM.
+    with db_connect() as conn:
+        row = conn.execute("SELECT owner_id FROM sessions WHERE id=?", (session_id,)).fetchone()
+    if row is None or row[0] != authenticated_owner():
+        raise HTTPException(404, "Session not found.")
     with sessions_lock:
         session = sessions.get(session_id)
     if session is None:
@@ -227,7 +258,7 @@ def basic_info(session_id: str, s: Session) -> dict:
         "retrieval_mode": "hybrid-semantic" if s.dense is not None else "lexical",
         "persistent": PERSIST_SESSIONS,
         "total_bytes": sum(len(f.data) for f in s.files),
-        "gemini_rerank": GEMINI_RERANK and bool(os.getenv("GEMINI_API_KEY")), "access_token_required": bool(DOCCHAT_ACCESS_TOKEN),
+        "gemini_rerank": GEMINI_RERANK and bool(os.getenv("GEMINI_API_KEY")), "access_token_required": True,
         "limits": {
             "max_upload_bytes": MAX_UPLOAD_BYTES,
             "max_file_bytes": MAX_FILE_BYTES,
@@ -311,7 +342,7 @@ def health():
         "answer_mode": "gemini" if os.getenv("GEMINI_API_KEY") else "evidence",
         "gemini_streaming": GEMINI_STREAMING and bool(os.getenv("GEMINI_API_KEY")),
         "model": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
-        "gemini_rerank": GEMINI_RERANK and bool(os.getenv("GEMINI_API_KEY")), "access_token_required": bool(DOCCHAT_ACCESS_TOKEN),
+        "gemini_rerank": GEMINI_RERANK and bool(os.getenv("GEMINI_API_KEY")), "access_token_required": True,
         "limits": {
             "max_upload_bytes": MAX_UPLOAD_BYTES,
             "max_file_bytes": MAX_FILE_BYTES,

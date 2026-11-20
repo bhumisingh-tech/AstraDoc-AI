@@ -1,5 +1,14 @@
+import { currentAuth } from './supabase';
 /** Typed interface to the actual FastAPI routes (backend/main.py). */
 const BASE = '/api';
+async function withAuth(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const session=await currentAuth();
+  if(!session) throw new Error('Please sign in again.');
+  const headers=new Headers(init.headers);
+  headers.set('Authorization','Bearer '+session.access_token);
+  return fetch(input,{...init,headers});
+}
+
 
 export interface DocumentStat {
   name: string;
@@ -86,7 +95,7 @@ async function check(response: Response): Promise<Response> {
 }
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await check(await fetch(`${BASE}${path}`, init));
+  const response = await check(await withAuth(`${BASE}${path}`, init));
   return response.json() as Promise<T>;
 }
 
@@ -123,7 +132,7 @@ export const api = {
     `/chat${params({ session_id: sessionId })}`, { method: 'DELETE' },
   ),
   exportMarkdown: async (sessionId: string): Promise<Blob> => {
-    const response = await check(await fetch(`${BASE}/export${params({ session_id: sessionId })}`));
+    const response = await check(await withAuth(`${BASE}/export${params({ session_id: sessionId })}`));
     return response.blob();
   },
 };
@@ -137,7 +146,7 @@ export async function streamChat(
   args: { sessionId: string; question: string; topK: number; regenerateLast?: boolean; signal?: AbortSignal },
   onEvent: (event: ChatEvent) => void | Promise<void>,
 ): Promise<void> {
-  const response = await check(await fetch(`${BASE}/chat`, {
+  const response = await check(await withAuth(`${BASE}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
     body: JSON.stringify({ session_id: args.sessionId, question: args.question, top_k: args.topK, regenerate_last: Boolean(args.regenerateLast) }),
@@ -209,7 +218,11 @@ export function uploadWithProgress(
     xhr.addEventListener('error', () => reject(new Error('Could not connect to the server.')));
     xhr.addEventListener('abort', () => reject(new DOMException('Upload cancelled.', 'AbortError')));
     xhr.open('POST', `${BASE}/upload`);
-    xhr.send(form);
+    void currentAuth().then(session=>{
+      if(!session) throw new Error('Please sign in again.');
+      xhr.setRequestHeader('Authorization','Bearer '+session.access_token);
+      xhr.send(form);
+    }).catch(reject);
   });
   return { promise, abort: () => xhr.abort() };
 }
@@ -220,7 +233,7 @@ export async function uploadLargeFile(
 ): Promise<{ key: string; size_bytes: number; status: string; indexed: boolean; message: string }> {
   const headers = { 'Content-Type': 'application/json', 'X-Large-Upload-Token': token };
   const request = async <T>(endpoint: string, body: object): Promise<T> => {
-    const response = await fetch(`/api/large-uploads/${endpoint}`, { method: 'POST', headers, body: JSON.stringify(body) });
+    const response = await withAuth(`/api/large-uploads/${endpoint}`, { method: 'POST', headers, body: JSON.stringify(body) });
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
       throw new Error(typeof error.detail === 'string' ? error.detail : `Large upload failed (HTTP ${response.status})`);
