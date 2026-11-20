@@ -342,7 +342,7 @@ def health():
         "answer_mode": "gemini" if os.getenv("GEMINI_API_KEY") else "evidence",
         "gemini_streaming": GEMINI_STREAMING and bool(os.getenv("GEMINI_API_KEY")),
         "model": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
-        "gemini_rerank": GEMINI_RERANK and bool(os.getenv("GEMINI_API_KEY")), "access_token_required": bool(DOCCHAT_ACCESS_TOKEN),
+        "gemini_rerank": GEMINI_RERANK and bool(os.getenv("GEMINI_API_KEY")), "access_token_required": True,
         "limits": {
             "max_upload_bytes": MAX_UPLOAD_BYTES,
             "max_file_bytes": MAX_FILE_BYTES,
