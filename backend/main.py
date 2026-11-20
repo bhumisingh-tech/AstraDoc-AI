@@ -70,7 +70,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "https://uwchgiomkbxltfbvdfeh.supabase.
 SUPABASE_PUBLISHABLE_KEY = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
 current_user_id: contextvars.ContextVar[str | None] = contextvars.ContextVar("astradoc_user", default=None)
 
-def require_access(request: Request, authorization: str | None = Header(default=None)):
+async def require_access(request: Request, authorization: str | None = Header(default=None)):
     if not request.url.path.startswith("/api/") or request.url.path == "/api/health":
         return
     if not SUPABASE_PUBLISHABLE_KEY:
@@ -81,7 +81,8 @@ def require_access(request: Request, authorization: str | None = Header(default=
     if not token:
         raise HTTPException(401, "Missing access token.")
     try:
-        result = requests.get(
+        result = await asyncio.to_thread(
+            requests.get,
             f"{SUPABASE_URL}/auth/v1/user",
             headers={"apikey": SUPABASE_PUBLISHABLE_KEY, "Authorization": f"Bearer {token}"},
             timeout=8,
