@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { currentAuth, loadConversation, loadConversations, saveConversation, signOut, startGoogleLogin, type AuthUser } from './lib/supabase';
 import { AnimatePresence, motion, MotionConfig } from 'framer-motion';
 import { BookOpenText, Moon, Orbit, PanelLeftClose, PanelLeftOpen, Sun, Trash2, WifiOff, Radar, SlidersHorizontal, Download, Sparkles } from 'lucide-react';
 import { api, streamChat, uploadWithProgress, type AnswerMode, type Health, type SessionInfo, type Source } from './lib/api';
@@ -18,6 +19,11 @@ const messageError = (error: unknown) => error instanceof Error ? error.message 
 /** The app never stores uploaded documents or the Gemini key in the browser. */
 export default function App() {
   const { preferences, setPreferences, reducedMotion } = usePreferences();
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [threads, setThreads] = useState<Array<{id:string;title:string;updated_at:string}>>([]);
+  const [threadId, setThreadId] = useState<string | null>(null);
   const [health, setHealth] = useState<Health | null>(null);
   const [offline, setOffline] = useState(false);
   const [waking, setWaking] = useState(false);
@@ -46,6 +52,7 @@ export default function App() {
   const chatInFlight = useRef(false);
   const isMounted = useRef(true);
 
+  useEffect(() => { void currentAuth().then(async session => { if (!isMounted.current) return; setAuthUser(session?.user ?? null); if (session) setThreads(await loadConversations(session.user.id)); }).catch(error => setAuthError(messageError(error))).finally(()=>setAuthLoading(false)); }, []);
   useEffect(() => {
     isMounted.current = true;
     const controller = new AbortController();
@@ -67,14 +74,14 @@ export default function App() {
       if (!controller.signal.aborted) { setOffline(true); setWaking(false); }
     };
     void checkHealth();
-    const savedId = localStorage.getItem('astradoc-session-id');
+    const savedId = sessionStorage.getItem('astradoc-session-id');
     if (savedId) api.session(savedId, controller.signal).then(info => {
       if (controller.signal.aborted) return;
       currentSession.current = info; setSession(info);
       setMessages(info.history.map((item, index) => ({ id: `restored-${index}`, question: item.question, answer: item.answer, sources: item.sources, mode: item.mode, status: 'done' })));
       api.insights(savedId).then(details => { if (!controller.signal.aborted) setSuggested(details.suggested_questions); }).catch(() => {});
       setDocumentRevision(value => value + 1);
-    }).catch(() => { if (!controller.signal.aborted) localStorage.removeItem('astradoc-session-id'); });
+    }).catch(() => { if (!controller.signal.aborted) sessionStorage.removeItem('astradoc-session-id'); });
     return () => { isMounted.current = false; window.clearTimeout(wakeTimer); controller.abort(); chatAbort.current?.abort(); };
   }, []);
 
@@ -88,9 +95,9 @@ export default function App() {
     const { promise } = uploadWithProgress(files, currentSession.current.session_id ?? undefined, setUploadProgress);
     try {
       const result = await promise;
-      currentSession.current = result; setSession(result); if (result.session_id) localStorage.setItem('astradoc-session-id', result.session_id); else localStorage.removeItem('astradoc-session-id'); setMessages([]); setChatError(null); setDocumentRevision(value => value + 1);
+      currentSession.current = result; setSession(result); if (result.session_id) sessionStorage.setItem('astradoc-session-id', result.session_id); else localStorage.removeItem('astradoc-session-id'); setMessages([]); setChatError(null); setDocumentRevision(value => value + 1);
       if (result.session_id) await refreshInsights(result.session_id);
-      setMobileTab('chat');
+      setThreadId(null); setMobileTab('chat');
     } catch (error) { setUploadError(messageError(error)); }
     finally { uploadInFlight.current = false; setBusyUpload(false); }
   }, []);
@@ -150,6 +157,14 @@ Success metrics: 95% citation accuracy in the evaluation set and mobile usabilit
       if (controller.signal.aborted) patch(msg => ({ ...msg, status: 'stopped' }));
       else { patch(msg => ({ ...msg, status: 'error' })); setChatError(messageError(error)); }
     } finally {
+      // Refresh the completed answer from the existing backend session before backing it up.
+      if (!controller.signal.aborted && authUser) {
+        try {
+          const snapshot = await api.session(sid);
+          const next = await saveConversation(authUser.id,threadId,snapshot.history);
+          if(next){setThreadId(next);setThreads(await loadConversations(authUser.id));}
+        } catch (error) { console.warn('Conversation backup unavailable:',error); }
+      }
       if (activeRequest.current === request) { chatInFlight.current = false; setBusyChat(false); activeRequest.current = null; chatAbort.current = null; }
     }
   };
@@ -159,6 +174,15 @@ Success metrics: 95% citation accuracy in the evaluation set and mobile usabilit
     const sid = session.session_id; if (!sid || busyChat || busyUpload || messages.length === 0) return;
     try { await api.clearChat(sid); setMessages([]); setChatError(null); }
     catch (error) { setChatError(messageError(error)); }
+  };
+  const openThread = async (thread: string) => {
+    if (!authUser) return;
+    try {
+      const rows=await loadConversation(authUser.id,thread);
+      const restored:ChatMessage[]=[];
+      for(let i=0;i<rows.length;i+=2) if(rows[i]?.role==='user' && rows[i+1]?.role==='assistant') restored.push({id:'saved-'+i,question:rows[i].content,answer:rows[i+1].content,sources:rows[i+1].sources??[],mode:null,status:'done'});
+      setMessages(restored);setThreadId(thread);setMobileTab('chat');
+    }catch(error){setChatError(messageError(error));}
   };
   const enabled = Boolean(session.session_id && session.passage_count);
   const latest = messages[messages.length-1];
@@ -180,6 +204,8 @@ Success metrics: 95% citation accuracy in the evaluation set and mobile usabilit
     return () => document.removeEventListener('keydown', keyboard);
   }, []);
 
+  if(authLoading) return <div className="flex min-h-dvh items-center justify-center" style={{background:'#070B14',color:'#F1F5F9'}}>Preparing secure sign-in…</div>;
+  if(!authUser) return <div className="flex min-h-dvh items-center justify-center px-5" style={{background:'radial-gradient(circle at top,#1c2148,#070B14 70%)',color:'#F1F5F9'}}><div className="glass-gradient w-full max-w-md p-8 text-center"><Orbit className="mx-auto mb-5" size={44} style={{color:'#8B80FF'}}/><h1 className="font-display text-3xl font-bold">Welcome to AstraDoc</h1><p className="mt-3 text-sm" style={{color:'#A3B2C7'}}>Your document intelligence workspace. Sign in to access your conversations.</p><button type="button" className="action-button mt-8 w-full justify-center" onClick={()=>void startGoogleLogin().catch(error=>setAuthError(messageError(error)))}>Continue with Google</button>{authError && <p role="alert" className="mt-4 text-sm" style={{color:'#FCA5A5'}}>{authError}</p>}<p className="mt-5 text-xs" style={{color:'#A3B2C7'}}>Google sign-in must be enabled in the Supabase dashboard before this can be used.</p></div></div>;
   return <MotionConfig reducedMotion={reducedMotion ? 'always' : 'never'}>
     <div className="cosmos" aria-hidden="true"/>
     <div className="app-frame mx-auto flex min-h-dvh w-full max-w-[1900px] flex-col px-3 pb-3 pt-3 sm:px-5 lg:px-7">
@@ -192,11 +218,13 @@ Success metrics: 95% citation accuracy in the evaluation set and mobile usabilit
           <button type="button" className="quiet-button hidden md:inline-flex xl:hidden" aria-label="Open document insights" title="Insights" onClick={()=>{setRightTab('insights');setMapOverlay(true);}}><Sparkles size={18}/></button>
           <button type="button" className="quiet-button hidden md:inline-flex xl:hidden" aria-label="Open export options" title="Export" onClick={()=>{setRightTab('export');setMapOverlay(true);}}><Download size={18}/></button>
           <label className="hidden items-center gap-2 text-[10px] lg:flex" style={{color:'var(--muted)'}}>Sources: {preferences.topK}<input aria-label="Sources per answer" type="range" min="2" max="8" className="w-16" value={preferences.topK} onChange={e=>setPreferences(p=>({...p,topK:Number(e.target.value)}))}/></label>
+          <button type="button" className="quiet-button" title="Sign out" onClick={()=>{signOut();sessionStorage.removeItem('astradoc-session-id');setAuthUser(null);setMessages([]);setSession(empty);}}><span className="text-xs">Sign out</span></button>
           <button type="button" className="quiet-button" title="Open controls (Ctrl+,)" aria-label="Open control panel" onClick={()=>setControlOpen(true)}><SlidersHorizontal size={18}/></button>
           <button type="button" className="quiet-button" disabled={!messages.length || busyChat || busyUpload} onClick={() => void clear()} aria-label="Clear conversation" title="Clear conversation"><Trash2 size={18}/></button>
           <button type="button" className="quiet-button" onClick={() => setPreferences(p => ({ ...p, theme: p.theme === 'dark' ? 'light' : 'dark' }))} aria-label={`Switch to ${preferences.theme === 'dark' ? 'light' : 'dark'} theme`}>{preferences.theme === 'dark' ? <Sun size={18}/> : <Moon size={18}/>}</button>
         </div>
       </header>
+      {threads.length>0 && <div className="no-print mb-3 flex flex-wrap items-center gap-2" aria-label="Saved conversations"><span className="text-xs" style={{color:'var(--muted)'}}>History</span>{threads.slice(0,5).map(t=><button key={t.id} type="button" className="starter-chip !px-3 !py-1.5 !text-xs" onClick={()=>void openThread(t.id)}>{t.title}</button>)}</div>}
       {!session.session_id && !busyUpload && <div className="no-print mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 sm:px-5" style={{borderColor:'var(--border)',background:'var(--panel)'}}><span className="text-xs" style={{color:'var(--muted)'}}>Start with a document, then ask anything. Every answer links back to its source.</span><button className="micro-button" type="button" onClick={sample}>✦ Explore a sample brief</button></div>}
       <div className="workspace relative grid min-h-0 flex-1 gap-3 md:grid-cols-[minmax(0,1fr)]" style={{ gridTemplateColumns: undefined }}>
         <div className="hidden min-h-0 gap-3 md:flex">
