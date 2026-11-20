@@ -29,3 +29,7 @@ jobs:
           python-version: '3.12'
       - name: Python syntax check
         run: python -m compileall -q backend
+      - name: Install backend testing dependencies
+        run: pip install -r backend/requirements.txt httpx
+      - name: Security integration tests
+        run: python -m unittest discover -s backend/tests -v
